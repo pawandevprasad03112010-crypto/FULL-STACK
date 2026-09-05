@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <title>Property Data Extractor</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f4f6f9; }
+    .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    .upload-box { border: 2px dashed #007bff; padding: 20px; text-align: center; background: #e9f2ff; margin-bottom: 20px; border-radius: 6px; }
+    textarea { width: 100%; height: 500px; font-family: monospace; background: #1e1e1e; color: #00ff66; padding: 12px; border-radius: 4px; box-sizing: border-box; font-size: 14px; }
+    .btn { background: #007bff; color: #fff; padding: 10px 20px; cursor: pointer; border-radius: 4px; display: inline-block; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h2>Property JSON Extractor & Form</h2>
+  
+  <div class="upload-box">
+    <h3>Property Photo Upload Karein</h3>
+    <p>Photo upload karte hi AI details extract kar lega aur auto-calculation apply ho jayegi.</p>
+    <label for="imageUpload" class="btn">Choose Photo</label>
+    <input type="file" id="imageUpload" accept="image/*" style="display:none" onchange="uploadPhoto(event)">
+    <p id="status" style="font-weight:bold; margin-top:10px;"></p>
+  </div>
+
+  <h3>Editable JSON Output (Directly touch/click karke type kar sakte hain):</h3>
+  <textarea id="jsonOutput" spellcheck="false"></textarea>
+</div>
+
+<script>
+  const defaultJSON = {
+    "user_id": "ADMIN",
+    "posted_by_type": "ADMIN",
+    "category": { "purpose": "BUY", "property_type": "RESIDENTIAL", "sub_type": "FLAT_APARTMENT" },
+    "contact": { "owner_name": "ADMIN", "phone": "na", "owner_type": "AGENT" },
+    "title_and_description": { "title": "na", "description": "na" },
+    "location": { "city": "Kolkata", "locality": "na", "sub_locality": "na", "landmark": "na", "pincode": "na", "state": "West Bengal", "full_address": "na" },
+    "pricing": { "price_display": "na", "price_numeric": "na", "is_negotiable": true },
+    "specifications": {
+      "bhk_type": "na", "bhk_numeric": "na", "builtup_sqft": "na", "carpet_sqft": "na",
+      "super_builtup_sqft": "na", "floor_no": "na", "total_floors": "na", "bathrooms": "na",
+      "balconies": "na", "furnishing_status": "na", "construction_status": "na",
+      "facing_direction": "NORTH WEST", "property_age": "na", "parking": "YES", "ownership_type": "FREEHOLD"
+    },
+    "amenities": ["LIFT", "SECURITY", "POWER_BACKUP", "PARKING"],
+    "media": { "images": [], "ai_short_video_url": "na" },
+    "created_at": "NOT_AVAILABLE_DATE"
+  };
+
+  // Display initial JSON
+  document.getElementById("jsonOutput").value = JSON.stringify(defaultJSON, null, 2);
+
+  async function uploadPhoto(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const status = document.getElementById("status");
+    status.style.color = "blue";
+    status.innerText = "Photo process ho rahi hai, kripya wait karein...";
+
+    const formData = new FormData();
+    formData.append("photo", file);
+
+    try {
+      // Automatic current server origin se URL lega
+      const response = await fetch("/process-image", {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        document.getElementById("jsonOutput").value = JSON.stringify(data, null, 2);
+        status.style.color = "green";
+        status.innerText = "Data Extracted & Applied Successfully!";
+      } else {
+        status.style.color = "red";
+        status.innerText = "Error: " + data.error;
+      }
+    } catch (err) {
+      status.style.color = "red";
+      status.innerText = "Server se connect nahi ho paya!";
+    }
+  }
+</script>
+
+</body>
+</html>
+
