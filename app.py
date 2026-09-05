@@ -1,7 +1,6 @@
 import os
 import json
-from collections import OrderedDict
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, Response, render_template
 from flask_cors import CORS
 from PIL import Image
 from google import genai
@@ -10,13 +9,15 @@ from google.genai import types
 app = Flask(__name__)
 CORS(app)
 
-# Environment Variable se API Key read karein
+# Flask me JSON keys ki automatic sorting band karne ke liye
+app.json.sort_keys = False
+
 API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 DEFAULT_AMENITIES = ["LIFT", "SECURITY", "POWER_BACKUP", "PARKING"]
 
-# Exact Order Maintain Karne Ke Liye Template
+# AAPKA EXACT JSON FORMAT (Exact Sequence)
 def get_default_structure():
     return {
         "user_id": "ADMIN",
@@ -89,7 +90,7 @@ def apply_custom_logic(data):
     builtup = to_float(specs.get("builtup_sqft"))
     super_builtup = to_float(specs.get("super_builtup_sqft"))
 
-    # Agar teeno me se koi ek bhi mil jaye toh baki do calculate ho jayenge
+    # Agart teeno me se koi 1 bhi mil jaye to baaki calculate honge
     if super_builtup and not builtup and not carpet:
         builtup = round(super_builtup / 1.25, 2)
         carpet = round(builtup / 1.20, 2)
@@ -120,7 +121,6 @@ def apply_custom_logic(data):
         else:
             specs["balconies"] = "na"
 
-    # Default Fallbacks
     if not specs.get("parking") or str(specs.get("parking")).lower() == "na":
         specs["parking"] = "YES"
     if not specs.get("facing_direction") or str(specs.get("facing_direction")).lower() == "na":
@@ -156,11 +156,11 @@ def home():
 @app.route('/process-image', methods=['POST'])
 def process_image():
     if not client:
-        return jsonify({"error": "GEMINI_API_KEY environment variable is not set on Render."}), 500
+        return Response(json.dumps({"error": "GEMINI_API_KEY environment variable is not set on Render."}), status=500, mimetype='application/json')
 
     uploaded_files = request.files.getlist('photos')
     if not uploaded_files or len(uploaded_files) == 0:
-        return jsonify({"error": "No photos uploaded"}), 400
+        return Response(json.dumps({"error": "No photos uploaded"}), status=400, mimetype='application/json')
 
     images = []
     for file in uploaded_files:
@@ -168,16 +168,18 @@ def process_image():
             images.append(Image.open(file.stream))
 
     prompt = f"""
-    You are an expert real estate data extractor. Extract property details combining ALL uploaded images/pamphlets.
+    You are an expert real estate data extractor. Extract property details combining ALL uploaded images.
     Fit the extracted details into this exact JSON structure:
     {json.dumps(get_default_structure())}
 
-    STRICT RULES:
-    1. TITLE EXTRACTION: Read the main header text in the image carefully (e.g. "Flat for Resale in MUKUNDPUR Purbalok, EM Bypass"). Include the property type, listing type, locality, and sub-locality exactly as written in that main black/dark title section into "title_and_description.title".
-    2. LOCATION, LANDMARK & PINCODE: Extract locality and sub_locality from image. Use your internal knowledge base to identify landmark or pincode if the locality/sub_locality (e.g. Mukundpur, Kolkata) is recognizable.
-    3. AMENITIES: Extract any amenities visible or mentioned. If none are explicitly mentioned, leave it empty [] (our backend will fill defaults).
-    4. NUMERIC FIELDS: Extract numeric values for price, sqft, bathrooms, balconies, etc.
-    5. Return ONLY valid JSON data, no markdown formatting like ```json.
+    STRICT RULES FOR TITLE & DESCRIPTION:
+    1. TITLE: "title_and_description.title" MUST contain ONLY the dark bold property name (e.g. "Moonlit Heights" or "Axis Plaza Apartment" or "MUKUNDPUR").
+    2. DESCRIPTION: "title_and_description.description" MUST contain the entire header section line (e.g. "4 BHK Flat for Resale in Baguiati, Kolkata.").
+
+    STRICT RULES FOR OTHER FIELDS:
+    3. LOCATION, LANDMARK & PINCODE: Extract locality and sub_locality. Search & fill the accurate Landmark and Pincode for this specific locality using your web knowledge base.
+    4. AMENITIES: Extract visible amenities. If none are found, keep empty list [].
+    5. Return ONLY raw JSON string without markdown formatting like ```json.
     """
 
     try:
@@ -191,23 +193,27 @@ def process_image():
         )
         extracted_json = json.loads(response.text)
 
-        # Apply all custom calculations and rules
+        # Apply custom logic
         final_data = apply_custom_logic(extracted_json)
 
-        # Enforce original JSON key ordering so it doesn't flip
-        ordered_template = get_default_structure()
-        for key in ordered_template.keys():
+        # Enforce exact top-to-bottom key sequence matching your provided format
+        template = get_default_structure()
+        ordered_output = {}
+        for key in template.keys():
             if key in final_data:
-                ordered_template[key] = final_data[key]
+                ordered_output[key] = final_data[key]
+            else:
+                ordered_output[key] = template[key]
 
-        # Prevent Flask jsonify from auto-sorting keys alphabetically
-        app.config['JSON_SORT_KEYS'] = False
-        return jsonify(ordered_template)
+        # Convert to formatted JSON string maintaining exact key order
+        json_output_string = json.dumps(ordered_output, indent=2, sort_keys=False)
+
+        return Response(json_output_string, status=200, mimetype='application/json')
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return Response(json.dumps({"error": str(e)}), status=500, mimetype='application/json')
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
-            
+
