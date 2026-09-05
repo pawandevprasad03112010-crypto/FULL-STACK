@@ -9,7 +9,6 @@ from google.genai import types
 app = Flask(__name__)
 CORS(app)
 
-# JSON key auto-sorting ko disable karein
 app.json.sort_keys = False
 
 API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -17,7 +16,6 @@ client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 DEFAULT_AMENITIES = ["LIFT", "SECURITY", "POWER_BACKUP", "PARKING"]
 
-# AAPKA EXACT JSON FORMAT (Sequence Maintain karne ke liye)
 def get_default_structure():
     return {
         "user_id": "ADMIN",
@@ -76,14 +74,13 @@ def get_default_structure():
     }
 
 def apply_custom_logic(data):
-    # 1. Real Estate Standard Area Calculation Logic
+    # 1. Area Auto-Calculation Logic
     specs = data.get("specifications", {})
 
     def to_float(val):
         if val is None or str(val).strip().lower() in ["na", "", "none", "null"]:
             return None
         try:
-            # Clean string like "1430 sqft", "1,430", etc.
             clean_str = "".join([c for c in str(val) if c.isdigit() or c == '.'])
             return float(clean_str) if clean_str else None
         except (ValueError, TypeError):
@@ -97,7 +94,6 @@ def apply_custom_logic(data):
     builtup = to_float(specs.get("builtup_sqft"))
     super_builtup = to_float(specs.get("super_builtup_sqft"))
 
-    # Agart teeno me se koi bhi 1 mil jaye, toh baki 2 calculate ho jayenge
     if super_builtup and not builtup and not carpet:
         builtup = round(super_builtup / 1.25, 2)
         carpet = round(builtup / 1.20, 2)
@@ -137,17 +133,24 @@ def apply_custom_logic(data):
 
     data["specifications"] = specs
 
-    # 2. Amenities Fallback Logic
+    # 2. Locality = Sub Locality Rule
+    loc = data.get("location", {})
+    sub_loc = str(loc.get("sub_locality", "")).strip()
+    
+    if sub_loc and sub_loc.lower() != "na":
+        loc["locality"] = sub_loc
+        loc["sub_locality"] = sub_loc
+
+    # 3. Amenities Fallback
     amenities = data.get("amenities")
     if not amenities or len(amenities) == 0:
         data["amenities"] = DEFAULT_AMENITIES
 
-    # 3. Full Address Combination Logic
-    loc = data.get("location", {})
+    # 4. Full Address Combination
     address_parts = []
     for key in ["sub_locality", "locality", "landmark", "city", "state", "pincode"]:
         val = str(loc.get(key, "")).strip()
-        if val and val.lower() != "na":
+        if val and val.lower() != "na" and val not in address_parts:
             address_parts.append(val)
     
     if address_parts:
@@ -182,18 +185,15 @@ def process_image():
     {json.dumps(get_default_structure())}
 
     STRICT RULES FOR EXTRACTION:
-    1. TITLE: "title_and_description.title" MUST contain ONLY the main dark bold property name (e.g. "Moonlit Heights" or "MUKUNDPUR" or "Axis Plaza Apartment").
-    2. DESCRIPTION: "title_and_description.description" MUST contain the entire header/property text line.
-    3. LOCATION & LOCALITY:
-       - Do NOT put property titles or building names into "locality" or "sub_locality".
-       - "locality" and "sub_locality" MUST be the actual area/neighborhood names (e.g. "Baguiati", "EM Bypass", "Mukundpur").
-       - Search & fill accurate Landmark and Pincode for this locality using web knowledge.
+    1. TITLE: "title_and_description.title" MUST contain ONLY the main dark bold property name (e.g. "Ideal AquaView").
+    2. DESCRIPTION: "title_and_description.description" MUST contain the entire header line text.
+    3. LOCATION, SUB_LOCALITY & LANDMARK:
+       - Extract the specific sub-locality/area (e.g. "Sector 5", "Baguiati", "Mukundpur").
+       - Set "locality" and "sub_locality" to be identical.
+       - LANDMARK & PINCODE: Use web search knowledge to find the nearest prominent LANDMARK and correct PINCODE for this specific project/locality (e.g., nearest IT park, metro station, or famous landmark near the project).
     4. AREA SPECIFICATIONS (SQFT):
-       - Look for ANY area mention in image (Super Built-up Area, Built-up Area, or Carpet Area).
-       - Extract numeric sqft value for whichever is visible (e.g. 1430 for "1430 sqft Super Built-up Area").
-       - Put "na" for areas not explicitly mentioned in image (Backend will auto-calculate them).
-    5. AMENITIES: Extract visible amenities. If none found, return [].
-    6. Return ONLY raw JSON string without markdown wrappers.
+       - Extract numeric sqft value for ANY area visible in the image. Put "na" for missing ones.
+    5. Return ONLY raw JSON string without markdown wrappers.
     """
 
     try:
@@ -207,10 +207,8 @@ def process_image():
         )
         extracted_json = json.loads(response.text)
 
-        # Apply custom logic & calculation formulas
         final_data = apply_custom_logic(extracted_json)
 
-        # Enforce exact top-to-bottom key sequence matching your provided template
         template = get_default_structure()
         ordered_output = {}
         for key in template.keys():
@@ -219,7 +217,6 @@ def process_image():
             else:
                 ordered_output[key] = template[key]
 
-        # Convert to formatted JSON string maintaining exact key order
         json_output_string = json.dumps(ordered_output, indent=2, sort_keys=False)
 
         return Response(json_output_string, status=200, mimetype='application/json')
@@ -230,3 +227,4 @@ def process_image():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
+        
