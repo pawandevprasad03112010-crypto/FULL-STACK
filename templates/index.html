@@ -7,8 +7,12 @@
     body { font-family: Arial, sans-serif; margin: 20px; background: #f4f6f9; }
     .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
     .upload-box { border: 2px dashed #007bff; padding: 20px; text-align: center; background: #e9f2ff; margin-bottom: 20px; border-radius: 6px; }
-    textarea { width: 100%; height: 500px; font-family: monospace; background: #1e1e1e; color: #00ff66; padding: 12px; border-radius: 4px; box-sizing: border-box; font-size: 14px; }
-    .btn { background: #007bff; color: #fff; padding: 10px 20px; cursor: pointer; border-radius: 4px; display: inline-block; font-weight: bold; }
+    textarea { width: 100%; height: 500px; font-family: monospace; background: #1e1e1e; color: #00ff66; padding: 12px; border-radius: 4px; box-sizing: border-box; font-size: 14px; margin-top: 10px; }
+    .btn { background: #007bff; color: #fff; padding: 10px 20px; cursor: pointer; border-radius: 4px; display: inline-block; font-weight: bold; border: none; }
+    .btn:hover { background: #0056b3; }
+    .copy-btn { background: #28a745; color: #fff; padding: 8px 16px; cursor: pointer; border-radius: 4px; font-weight: bold; border: none; float: right; margin-bottom: 5px; }
+    .copy-btn:hover { background: #218838; }
+    .json-header { overflow: hidden; margin-top: 20px; }
   </style>
 </head>
 <body>
@@ -24,7 +28,11 @@
     <p id="status" style="font-weight:bold; margin-top:10px;"></p>
   </div>
 
-  <h3>Editable JSON Output (Directly touch/click karke type kar sakte hain):</h3>
+  <div class="json-header">
+    <h3 style="float: left; margin: 0;">Editable JSON Output:</h3>
+    <button class="copy-btn" id="copyBtn" onclick="copyJSON()">Copy JSON</button>
+  </div>
+  
   <textarea id="jsonOutput" spellcheck="false"></textarea>
 </div>
 
@@ -48,7 +56,6 @@
     "created_at": "NOT_AVAILABLE_DATE"
   };
 
-  // Display initial JSON
   document.getElementById("jsonOutput").value = JSON.stringify(defaultJSON, null, 2);
 
   async function uploadPhoto(event) {
@@ -63,7 +70,6 @@
     formData.append("photo", file);
 
     try {
-      // Automatic current server origin se URL lega
       const response = await fetch("/process-image", {
         method: "POST",
         body: formData
@@ -82,6 +88,27 @@
       status.style.color = "red";
       status.innerText = "Server se connect nahi ho paya!";
     }
+  }
+
+  // Copy JSON Functionality
+  function copyJSON() {
+    const jsonTextarea = document.getElementById("jsonOutput");
+    jsonTextarea.select();
+    jsonTextarea.setSelectionRange(0, 99999); // Mobile devices ke liye
+
+    navigator.clipboard.writeText(jsonTextarea.value).then(() => {
+      const copyBtn = document.getElementById("copyBtn");
+      const originalText = copyBtn.innerText;
+      copyBtn.innerText = "Copied! ✓";
+      copyBtn.style.background = "#17a2b8";
+
+      setTimeout(() => {
+        copyBtn.innerText = originalText;
+        copyBtn.style.background = "#28a745";
+      }, 2000);
+    }).catch(err => {
+      alert("Copy karne me error aaya: " + err);
+    });
   }
 </script>
 
