@@ -9,7 +9,9 @@ from google.genai import types
 app = Flask(__name__)
 CORS(app)
 
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+# Environment variable se GEMINI_API_KEY read hoga (GitHub Secret Warning nahi dega)
+API_KEY = os.environ.get("GEMINI_API_KEY")
+client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 JSON_STRUCTURE = {
     "user_id": "ADMIN",
@@ -39,7 +41,7 @@ def apply_custom_specifications_logic(specs):
         try: return int(val)
         except (ValueError, TypeError): return None
 
-    # 1. Area Auto-Calculation Logic
+    # 1. Real Estate Area Calculation Logic
     carpet = to_float(specs.get("carpet_sqft"))
     builtup = to_float(specs.get("builtup_sqft"))
     super_builtup = to_float(specs.get("super_builtup_sqft"))
@@ -60,7 +62,7 @@ def apply_custom_specifications_logic(specs):
     specs["builtup_sqft"] = builtup if builtup is not None else "na"
     specs["super_builtup_sqft"] = super_builtup if super_builtup is not None else "na"
 
-    # 2. Balcony Logic based on Bathrooms
+    # 2. Bathroom & Balcony Logic
     bathrooms = to_int(specs.get("bathrooms"))
     balconies = to_int(specs.get("balconies"))
 
@@ -87,14 +89,15 @@ def apply_custom_specifications_logic(specs):
 
     return specs
 
-# Route to load Frontend HTML
 @app.route('/')
 def home():
     return render_template('index.html')
 
-# Route to process Image
 @app.route('/process-image', methods=['POST'])
 def process_image():
+    if not client:
+        return jsonify({"error": "GEMINI_API_KEY environment variable is not set on Render."}), 500
+
     if 'photo' not in request.files:
         return jsonify({"error": "No photo uploaded"}), 400
 
@@ -133,4 +136,4 @@ def process_image():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
-  
+    
