@@ -21,10 +21,11 @@
   <h2>Property JSON Extractor & Form</h2>
   
   <div class="upload-box">
-    <h3>Property Photo Upload Karein</h3>
-    <p>Photo upload karte hi AI details extract kar lega aur auto-calculation apply ho jayegi.</p>
-    <label for="imageUpload" class="btn">Choose Photo</label>
-    <input type="file" id="imageUpload" accept="image/*" style="display:none" onchange="uploadPhoto(event)">
+    <h3>Property Photos Upload Karein</h3>
+    <p>Aap ek se zyada (multiple) photos ek sath choose kar sakte hain.</p>
+    <label for="imageUpload" class="btn">Choose Photo(s)</label>
+    <!-- 'multiple' attribute add kar diya gaya hai -->
+    <input type="file" id="imageUpload" accept="image/*" multiple style="display:none" onchange="uploadPhotos(event)">
     <p id="status" style="font-weight:bold; margin-top:10px;"></p>
   </div>
 
@@ -58,16 +59,18 @@
 
   document.getElementById("jsonOutput").value = JSON.stringify(defaultJSON, null, 2);
 
-  async function uploadPhoto(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+  async function uploadPhotos(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
 
     const status = document.getElementById("status");
     status.style.color = "blue";
-    status.innerText = "Photo process ho rahi hai, kripya wait karein...";
+    status.innerText = `${files.length} photo(s) process ho rahi hain, waiting...`;
 
     const formData = new FormData();
-    formData.append("photo", file);
+    for (let i = 0; i < files.length; i++) {
+      formData.append("photos", files[i]);
+    }
 
     try {
       const response = await fetch("/process-image", {
@@ -79,7 +82,7 @@
       if (response.ok) {
         document.getElementById("jsonOutput").value = JSON.stringify(data, null, 2);
         status.style.color = "green";
-        status.innerText = "Data Extracted & Applied Successfully!";
+        status.innerText = "All Data Extracted & Applied Successfully!";
       } else {
         status.style.color = "red";
         status.innerText = "Error: " + data.error;
@@ -90,11 +93,10 @@
     }
   }
 
-  // Copy JSON Functionality
   function copyJSON() {
     const jsonTextarea = document.getElementById("jsonOutput");
     jsonTextarea.select();
-    jsonTextarea.setSelectionRange(0, 99999); // Mobile devices ke liye
+    jsonTextarea.setSelectionRange(0, 99999);
 
     navigator.clipboard.writeText(jsonTextarea.value).then(() => {
       const copyBtn = document.getElementById("copyBtn");
@@ -114,4 +116,3 @@
 
 </body>
 </html>
-
