@@ -9,7 +9,6 @@ from google.genai import types
 app = Flask(__name__)
 CORS(app)
 
-# Environment variable se GEMINI_API_KEY read hoga (GitHub Secret Warning nahi dega)
 API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=API_KEY) if API_KEY else None
 
@@ -41,7 +40,6 @@ def apply_custom_specifications_logic(specs):
         try: return int(val)
         except (ValueError, TypeError): return None
 
-    # 1. Real Estate Area Calculation Logic
     carpet = to_float(specs.get("carpet_sqft"))
     builtup = to_float(specs.get("builtup_sqft"))
     super_builtup = to_float(specs.get("super_builtup_sqft"))
@@ -62,7 +60,6 @@ def apply_custom_specifications_logic(specs):
     specs["builtup_sqft"] = builtup if builtup is not None else "na"
     specs["super_builtup_sqft"] = super_builtup if super_builtup is not None else "na"
 
-    # 2. Bathroom & Balcony Logic
     bathrooms = to_int(specs.get("bathrooms"))
     balconies = to_int(specs.get("balconies"))
 
@@ -77,12 +74,10 @@ def apply_custom_specifications_logic(specs):
         else:
             specs["balconies"] = "na"
 
-    # 3. Parking Default Logic
     parking = str(specs.get("parking", "")).strip()
     if not parking or parking.lower() == "na":
         specs["parking"] = "YES"
 
-    # 4. Facing Direction Default Logic
     facing = str(specs.get("facing_direction", "")).strip()
     if not facing or facing.lower() == "na":
         specs["facing_direction"] = "NORTH WEST"
@@ -96,29 +91,34 @@ def home():
 @app.route('/process-image', methods=['POST'])
 def process_image():
     if not client:
-        return jsonify({"error": "GEMINI_API_KEY environment variable is not set on Render."}), 500
+        return jsonify({"error": "GEMINI_API_KEY environment variable is missing on Render."}), 500
 
-    if 'photo' not in request.files:
-        return jsonify({"error": "No photo uploaded"}), 400
+    # Read multiple files
+    uploaded_files = request.files.getlist('photos')
+    if not uploaded_files or len(uploaded_files) == 0:
+        return jsonify({"error": "No photos uploaded"}), 400
 
-    file = request.files['photo']
-    image = Image.open(file.stream)
+    images = []
+    for file in uploaded_files:
+        if file.filename != '':
+            images.append(Image.open(file.stream))
 
     prompt = f"""
-    Extract property details from this image/pamphlet and fit them into this exact JSON schema:
+    Extract property details combining ALL uploaded images/pamphlets and fit them into this exact JSON schema:
     {json.dumps(JSON_STRUCTURE)}
 
     Rules:
-    1. If a field's value is missing or not visible in the image, strictly set its value to "na".
-    2. Extract numeric values for numeric fields like carpet_sqft, builtup_sqft, super_builtup_sqft, bathrooms, balconies, etc.
-    3. Keep existing default values like city="Kolkata", state="West Bengal", ownership_type="FREEHOLD" unless image explicitly mentions otherwise.
-    4. Return ONLY valid JSON data, no extra markdown, text or explanation.
+    1. If a field's value is missing or not visible in any image, strictly set its value to "na".
+    2. Combine information from all provided photos to create one single comprehensive JSON response.
+    3. Return ONLY valid JSON data, no extra markdown or text.
     """
 
     try:
+        # Pass all images together in contents array
+        contents = images + [prompt]
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=[image, prompt],
+            contents=contents,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json"
             )
