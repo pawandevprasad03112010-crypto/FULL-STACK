@@ -4,8 +4,13 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 'public' folder ko static serve karne ke liye
+// Static files serve karne ke liye
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Explicit route taaki root URL par index.html khul sake
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // Server start karna
 app.listen(PORT, () => {
