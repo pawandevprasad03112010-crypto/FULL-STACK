@@ -6,6 +6,7 @@ const cloudinary = require('cloudinary').v2;
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Cloudinary Configuration
 cloudinary.config({
     cloud_name: 'zowk74pz',
     api_key: '684481677341335',
@@ -24,7 +25,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         }
 
         const uploadStream = cloudinary.uploader.upload_stream(
-            { resource_type: 'auto' }, // 'auto' se Cloudinary khud format detect kar lega (video/audio)
+            { resource_type: 'auto' },
             (error, result) => {
                 if (error) {
                     console.error('Cloudinary upload error:', error);
@@ -42,7 +43,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 app.listen(PORT, () => {
