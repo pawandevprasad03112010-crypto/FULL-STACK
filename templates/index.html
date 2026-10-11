@@ -1,118 +1,217 @@
 <!DOCTYPE html>
-<html lang="hi">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Property Data Extractor</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: #f4f6f9; }
-    .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    .upload-box { border: 2px dashed #007bff; padding: 20px; text-align: center; background: #e9f2ff; margin-bottom: 20px; border-radius: 6px; }
-    textarea { width: 100%; height: 500px; font-family: monospace; background: #1e1e1e; color: #00ff66; padding: 12px; border-radius: 4px; box-sizing: border-box; font-size: 14px; margin-top: 10px; }
-    .btn { background: #007bff; color: #fff; padding: 10px 20px; cursor: pointer; border-radius: 4px; display: inline-block; font-weight: bold; border: none; }
-    .btn:hover { background: #0056b3; }
-    .copy-btn { background: #28a745; color: #fff; padding: 8px 16px; cursor: pointer; border-radius: 4px; font-weight: bold; border: none; float: right; margin-bottom: 5px; }
-    .copy-btn:hover { background: #218838; }
-    .json-header { overflow: hidden; margin-top: 20px; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto 5-Second Cloudinary Recorder</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body {
+            background: linear-gradient(135deg, #1f4068, #162447);
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            text-align: center;
+            max-width: 600px;
+            width: 90%;
+        }
+        h2 {
+            margin-bottom: 20px;
+            font-weight: 500;
+            color: #e4e4e4;
+        }
+        video {
+            width: 100%;
+            max-height: 320px;
+            border-radius: 12px;
+            background: #000;
+            object-fit: cover;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            transform: scaleX(-1); /* Mirror view ke liye */
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        #startBtn {
+            background-color: #2ecc71;
+            color: white;
+        }
+        #startBtn:hover {
+            background-color: #27ae60;
+        }
+        #stopBtn {
+            background-color: #e74c3c;
+            color: white;
+        }
+        #stopBtn:hover {
+            background-color: #c0392b;
+        }
+        button:disabled {
+            background-color: #7f8c8d;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        #status {
+            margin-top: 15px;
+            font-size: 15px;
+            min-height: 24px;
+            color: #f1c40f;
+        }
+        #linksContainer {
+            margin-top: 15px;
+            max-height: 100px;
+            overflow-y: auto;
+            text-align: left;
+            font-size: 13px;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            border-radius: 8px;
+        }
+        a {
+            color: #3498db;
+            text-decoration: none;
+            display: block;
+            margin-bottom: 5px;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
 </head>
 <body>
 
-<div class="container">
-  <h2>Property JSON Extractor & Form</h2>
-  
-  <div class="upload-box">
-    <h3>Property Photos Upload Karein</h3>
-    <p>Aap ek se zyada (multiple) photos ek sath choose kar sakte hain.</p>
-    <label for="imageUpload" class="btn">Choose Photo(s)</label>
-    <!-- 'multiple' attribute add kar diya gaya hai -->
-    <input type="file" id="imageUpload" accept="image/*" multiple style="display:none" onchange="uploadPhotos(event)">
-    <p id="status" style="font-weight:bold; margin-top:10px;"></p>
-  </div>
+    <div class="container">
+        <h2>Har 5 Sec Auto Cloud Recorder</h2>
+        <video id="preview" autoplay muted playsinline></video>
+        
+        <div class="controls">
+            <button id="startBtn" disabled>Start Recording</button>
+            <button id="stopBtn" disabled>Stop Recording</button>
+        </div>
 
-  <div class="json-header">
-    <h3 style="float: left; margin: 0;">Editable JSON Output:</h3>
-    <button class="copy-btn" id="copyBtn" onclick="copyJSON()">Copy JSON</button>
-  </div>
-  
-  <textarea id="jsonOutput" spellcheck="false"></textarea>
-</div>
+        <p id="status">Permissions mangi ja rahi hain...</p>
+        <div id="linksContainer"></div>
+    </div>
 
-<script>
-  const defaultJSON = {
-    "user_id": "ADMIN",
-    "posted_by_type": "ADMIN",
-    "category": { "purpose": "BUY", "property_type": "RESIDENTIAL", "sub_type": "FLAT_APARTMENT" },
-    "contact": { "owner_name": "ADMIN", "phone": "na", "owner_type": "AGENT" },
-    "title_and_description": { "title": "na", "description": "na" },
-    "location": { "city": "Kolkata", "locality": "na", "sub_locality": "na", "landmark": "na", "pincode": "na", "state": "West Bengal", "full_address": "na" },
-    "pricing": { "price_display": "na", "price_numeric": "na", "is_negotiable": true },
-    "specifications": {
-      "bhk_type": "na", "bhk_numeric": "na", "builtup_sqft": "na", "carpet_sqft": "na",
-      "super_builtup_sqft": "na", "floor_no": "na", "total_floors": "na", "bathrooms": "na",
-      "balconies": "na", "furnishing_status": "na", "construction_status": "na",
-      "facing_direction": "NORTH WEST", "property_age": "na", "parking": "YES", "ownership_type": "FREEHOLD"
-    },
-    "amenities": ["LIFT", "SECURITY", "POWER_BACKUP", "PARKING"],
-    "media": { "images": [], "ai_short_video_url": "na" },
-    "created_at": "NOT_AVAILABLE_DATE"
-  };
+    <script>
+        let mediaRecorder;
+        let stream;
 
-  document.getElementById("jsonOutput").value = JSON.stringify(defaultJSON, null, 2);
+        const preview = document.getElementById('preview');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const status = document.getElementById('status');
+        const linksContainer = document.getElementById('linksContainer');
 
-  async function uploadPhotos(event) {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
+        // Aapki Cloudinary Details yahan configured hain
+        const CLOUD_NAME = "zowk74pz";
+        const API_KEY = "684481677341335";
+        const UPLOAD_PRESET = "GrpVTqmhonJpsAJFm_YcY2wVnwM"; // Unsigned preset
 
-    const status = document.getElementById("status");
-    status.style.color = "blue";
-    status.innerText = `${files.length} photo(s) process ho rahi hain, waiting...`;
+        const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/video/upload`;
 
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      formData.append("photos", files[i]);
-    }
+        // 1. Page load hote hi Camera aur Mic ki permission lena
+        async function initMedia() {
+            try {
+                status.innerText = "Kripya Camera aur Microphone ki permission dein...";
+                
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                preview.srcObject = stream;
+                
+                status.innerText = "Permissions mil gayi! Ab aap 'Start Recording' daba sakte hain.";
+                startBtn.disabled = false;
 
-    try {
-      const response = await fetch("/process-image", {
-        method: "POST",
-        body: formData
-      });
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
 
-      const data = await response.json();
-      if (response.ok) {
-        document.getElementById("jsonOutput").value = JSON.stringify(data, null, 2);
-        status.style.color = "green";
-        status.innerText = "All Data Extracted & Applied Successfully!";
-      } else {
-        status.style.color = "red";
-        status.innerText = "Error: " + data.error;
-      }
-    } catch (err) {
-      status.style.color = "red";
-      status.innerText = "Server se connect nahi ho paya!";
-    }
-  }
+                // 2. Har 5 second baad yeh event trigger hoga aur chunk dega
+                mediaRecorder.ondataavailable = async (event) => {
+                    if (event.data && event.data.size > 0) {
+                        const chunkBlob = new Blob([event.data], { type: 'video/webm' });
+                        await uploadToCloudinary(chunkBlob);
+                    }
+                };
 
-  function copyJSON() {
-    const jsonTextarea = document.getElementById("jsonOutput");
-    jsonTextarea.select();
-    jsonTextarea.setSelectionRange(0, 99999);
+            } catch (err) {
+                console.error("Permission error:", err);
+                status.innerText = "Error: Camera ya Microphone ki permission nahi mili.";
+            }
+        }
 
-    navigator.clipboard.writeText(jsonTextarea.value).then(() => {
-      const copyBtn = document.getElementById("copyBtn");
-      const originalText = copyBtn.innerText;
-      copyBtn.innerText = "Copied! ✓";
-      copyBtn.style.background = "#17a2b8";
+        // 3. Start button click event
+        startBtn.onclick = () => {
+            // Yahan 5000 milliseconds (5 seconds) paas kiya gaya hai
+            mediaRecorder.start(5000);
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            status.innerText = "🔴 Recording active: Har 5 seconds mein Cloudinary par save ho raha hai...";
+        };
 
-      setTimeout(() => {
-        copyBtn.innerText = originalText;
-        copyBtn.style.background = "#28a745";
-      }, 2000);
-    }).catch(err => {
-      alert("Copy karne me error aaya: " + err);
-    });
-  }
-</script>
+        // 4. Stop button click event
+        stopBtn.onclick = () => {
+            mediaRecorder.stop();
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            status.innerText = "⏹️ Recording rok di gayi hai.";
+        };
 
+        // 5. Cloudinary par file upload karne ka function
+        async function uploadToCloudinary(blob) {
+            const formData = new FormData();
+            formData.append("file", blob);
+            formData.append("upload_preset", UPLOAD_PRESET);
+            // Agar zaroorat ho toh api_key bhi append ki ja sakti hai, par unsigned upload preset ke liye sirf preset kafi hota hai.
+
+            try {
+                const response = await fetch(CLOUDINARY_URL, {
+                    method: "POST",
+                    body: formData
+                });
+                
+                const data = await response.json();
+                if (data.secure_url) {
+                    const timeStr = new Date().toLocaleTimeString();
+                    const link = document.createElement('a');
+                    link.href = data.secure_url;
+                    link.target = "_blank";
+                    link.innerText = `[${timeStr}] 5-Sec Video Saved (Click to view)`;
+                    linksContainer.prepend(link); // Naye links upar show honge
+                } else {
+                    console.error("Cloudinary Error:", data.error?.message);
+                }
+            } catch (err) {
+                console.error("Network/Upload error:", err);
+            }
+        }
+
+        // App start
+        window.addEventListener('load', initMedia);
+    </script>
 </body>
 </html>
