@@ -89,10 +89,6 @@
         const status = document.getElementById('status');
         const linksContainer = document.getElementById('linksContainer');
 
-        const CLOUD_NAME = "zowk74pz";
-        const UPLOAD_PRESET = "GrpVTqmhonJpsAJFm_YcY2wVnwM";
-        const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/video/upload`;
-
         async function initMedia() {
             try {
                 status.innerText = "Kripya Camera aur Microphone ki permission dein...";
@@ -100,14 +96,14 @@
                 stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 preview.srcObject = stream;
                 
-                status.innerText = "🔴 Recording chalu hai... Har 5 second mein upload ho raha hai.";
+                status.innerText = "🔴 Recording chalu hai... Har 5 second mein server par save ho raha hai.";
 
                 mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
 
                 mediaRecorder.ondataavailable = async (event) => {
                     if (event.data && event.data.size > 0) {
                         const chunkBlob = new Blob([event.data], { type: 'video/webm' });
-                        await uploadToCloudinary(chunkBlob);
+                        await uploadToServer(chunkBlob);
                     }
                 };
 
@@ -119,13 +115,12 @@
             }
         }
 
-        async function uploadToCloudinary(blob) {
+        async function uploadToServer(blob) {
             const formData = new FormData();
-            formData.append("file", blob);
-            formData.append("upload_preset", UPLOAD_PRESET);
+            formData.append("file", blob, "recording.webm");
 
             try {
-                const response = await fetch(CLOUDINARY_URL, {
+                const response = await fetch('/upload', {
                     method: "POST",
                     body: formData
                 });
@@ -139,12 +134,12 @@
                     link.innerText = `[${timeStr}] Saved! Click to view`;
                     linksContainer.prepend(link);
                 } else {
-                    console.error("Cloudinary Error:", data);
-                    status.innerText = "Upload Failed: " + (data.error?.message || "Invalid Preset/Cloud Name");
+                    console.error("Upload Error:", data);
+                    status.innerText = "Upload Failed: " + (data.error || "Unknown error");
                 }
             } catch (err) {
                 console.error("Network error:", err);
-                status.innerText = "Network Error: Upload nahi ho saka.";
+                status.innerText = "Network Error: Server se connect nahi ho saka.";
             }
         }
 
