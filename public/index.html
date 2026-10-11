@@ -84,6 +84,7 @@
     <script>
         let mediaRecorder;
         let stream;
+        let recordedChunks = [];
 
         const preview = document.getElementById('preview');
         const status = document.getElementById('status');
@@ -98,27 +99,44 @@
                 
                 status.innerText = "🔴 Recording chalu hai... Har 5 second mein server par save ho raha hai.";
 
-                // Mobile browser ke liye supported options check karna
-                let options = { mimeType: 'video/webm' };
-                if (!MediaRecorder.isTypeSupported('video/webm')) {
-                    options = { mimeType: 'video/mp4' }; // Agar webm support na ho toh mp4
-                }
-
-                mediaRecorder = new MediaRecorder(stream, options);
-
-                mediaRecorder.ondataavailable = async (event) => {
-                    if (event.data && event.data.size > 0) {
-                        const chunkBlob = new Blob([event.data], { type: mediaRecorder.mimeType });
-                        await uploadToServer(chunkBlob);
-                    }
-                };
-
-                mediaRecorder.start(5000);
+                startRecordingCycle();
 
             } catch (err) {
                 console.error("Permission error:", err);
                 status.innerText = "Error: Camera ya Mic ki permission nahi mili.";
             }
+        }
+
+        function startRecordingCycle() {
+            let options = { mimeType: 'video/webm' };
+            if (!MediaRecorder.isTypeSupported('video/webm')) {
+                options = { mimeType: 'video/mp4' };
+            }
+
+            recordedChunks = [];
+            mediaRecorder = new MediaRecorder(stream, options);
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    recordedChunks.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = async () => {
+                if (recordedChunks.length > 0) {
+                    const completeBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
+                    await uploadToServer(completeBlob);
+                }
+                startRecordingCycle();
+            };
+
+            mediaRecorder.start();
+
+            setTimeout(() => {
+                if (mediaRecorder && mediaRecorder.state === "recording") {
+                    mediaRecorder.stop();
+                }
+            }, 5000);
         }
 
         async function uploadToServer(blob) {
@@ -139,14 +157,11 @@
                     link.target = "_blank";
                     link.innerText = `[${timeStr}] Saved! Click to view`;
                     linksContainer.prepend(link);
-                    status.innerText = "🔴 Live: Recording & Uploading...";
                 } else {
                     console.error("Upload Error:", data);
-                    status.innerText = "Upload Failed: " + (data.error || "Unknown error");
                 }
             } catch (err) {
                 console.error("Network error:", err);
-                status.innerText = "Network Error: Server se connect nahi ho saka.";
             }
         }
 
