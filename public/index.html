@@ -98,11 +98,17 @@
                 
                 status.innerText = "🔴 Recording chalu hai... Har 5 second mein server par save ho raha hai.";
 
-                mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+                // Mobile browser ke liye supported options check karna
+                let options = { mimeType: 'video/webm' };
+                if (!MediaRecorder.isTypeSupported('video/webm')) {
+                    options = { mimeType: 'video/mp4' }; // Agar webm support na ho toh mp4
+                }
+
+                mediaRecorder = new MediaRecorder(stream, options);
 
                 mediaRecorder.ondataavailable = async (event) => {
                     if (event.data && event.data.size > 0) {
-                        const chunkBlob = new Blob([event.data], { type: 'video/webm' });
+                        const chunkBlob = new Blob([event.data], { type: mediaRecorder.mimeType });
                         await uploadToServer(chunkBlob);
                     }
                 };
@@ -133,6 +139,7 @@
                     link.target = "_blank";
                     link.innerText = `[${timeStr}] Saved! Click to view`;
                     linksContainer.prepend(link);
+                    status.innerText = "🔴 Live: Recording & Uploading...";
                 } else {
                     console.error("Upload Error:", data);
                     status.innerText = "Upload Failed: " + (data.error || "Unknown error");
