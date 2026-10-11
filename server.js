@@ -6,7 +6,6 @@ const cloudinary = require('cloudinary').v2;
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Cloudinary Configuration
 cloudinary.config({
     cloud_name: 'zowk74pz',
     api_key: '684481677341335',
@@ -24,20 +23,16 @@ app.post('/upload', upload.single('file'), async (req, res) => {
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        const uploadStream = cloudinary.uploader.upload_stream(
-            { resource_type: 'auto' },
-            (error, result) => {
-                if (error) {
-                    console.error('Cloudinary upload error:', error);
-                    return res.status(500).json({ error: error.message });
-                }
-                res.json({ secure_url: result.secure_url });
-            }
-        );
+        // Buffer ko base64 data URI mein convert karke upload karna sabse safe hota hai
+        const fileBase64 = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
 
-        uploadStream.end(req.file.buffer);
+        const result = await cloudinary.uploader.upload(fileBase64, {
+            resource_type: 'video'
+        });
+
+        res.json({ secure_url: result.secure_url });
     } catch (err) {
-        console.error('Server error:', err);
+        console.error('Cloudinary upload error:', err);
         res.status(500).json({ error: err.message });
     }
 });
