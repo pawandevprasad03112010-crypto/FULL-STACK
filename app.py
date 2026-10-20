@@ -24,18 +24,31 @@ def remove_watermark(image_path, output_path):
     if img is None:
         return False
     
-    # ग्रेस्केल में बदलें
+    height, width = img.shape[:2]
+    
+    # ग्रेस्केल इमेज बनाएं
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 195, 255, cv2.THRESH_BINARY)
     
-    # थ्रेशोल्ड वैल्यू को 190 किया गया है ताकि पारदर्शी और हल्के वाटरमार्क्स भी आसानी से पकड़ में आ जाएं
-    _, thresh = cv2.threshold(gray, 190, 255, cv2.THRESH_BINARY)
+    # हाउसिंग वाटरमार्क की फिक्स पोजीशन (अलमारी वाला क्षेत्र)
+    # y (ऊंचाई): 30% से 80%, x (चौड़ाई): 40% से 55%
+    y1, y2 = int(height * 0.3), int(height * 0.8)
+    x1, x2 = int(width * 0.4), int(width * 0.55)
     
-    # बड़े लोगो/वाटरमार्क क्षेत्र को पूरी तरह कवर करने के लिए Kernel और Dilation को मजबूत किया गया है
-    kernel = np.ones((5, 5), np.uint8)
-    mask = cv2.dilate(thresh, kernel, iterations=2)
+    # एक खाली मास्क बनाएं
+    mask = np.zeros_like(gray)
     
-    # OpenCV Inpainting (Telea Algorithm) का उपयोग करके वाटरमार्क हटाना
-    dst = cv2.inpaint(img, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+    # केवल अलमारी वाले विशिष्ट क्षेत्र (ROI) में वाटरमार्क डिटेक्ट करें ताकि खिड़की सुरक्षित रहे
+    roi_thresh = thresh[y1:y2, x1:x2]
+    kernel = np.ones((3, 3), np.uint8)
+    roi_mask = cv2.dilate(roi_thresh, kernel, iterations=1)
+    
+    # मुख्य मास्क में इस क्षेत्र को जोड़ें
+    mask[y1:y2, x1:x2] = roi_mask
+    
+    # Inpainting के जरिए केवल इसी टारगेटेड पोजीशन से वाटरमार्क हटाया जाएगा
+    dst = cv2.inpaint(img, mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+    
     cv2.imwrite(output_path, dst)
     return True
 
@@ -82,12 +95,12 @@ def index():
         <div class="container">
             <div class="card">
                 <h2>⚡ High-Speed Watermark Remover</h2>
-                <p>एक साथ 10-20 इमेजेस अपलोड करें। एडवांस्ड स्कैनिंग से तुरंत साफ़ फाइल पाएं!</p>
+                <p>एक साथ 10-20 इमेजेस अपलोड करें। सटीक पोजीशन स्कैनिंग से तुरंत साफ़ फाइल पाएं!</p>
                 <form id="uploadForm" enctype="multipart/form-data">
                     <input type="file" name="images" multiple accept="image/*" required>
-                    <button type="submit" id="subBtn">वाटरमार्क हटाएं और स्कैन करें</button>
+                    <button type="submit" id="subBtn">वाटरमार्क हटाएं और प्रोसेस करें</button>
                 </form>
-                <div class="loader" id="loadingText">इमेजेस स्कैन और प्रोसेस हो रही हैं, कृपया प्रतीक्षा करें...</div>
+                <div class="loader" id="loadingText">इमेजेस प्रोसेस हो रही हैं, कृपया प्रतीक्षा करें...</div>
             </div>
 
             <div id="results-section">
