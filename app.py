@@ -26,19 +26,31 @@ def remove_watermark(image_path, output_path):
     
     height, width = img.shape[:2]
     
-    # पूरी इमेज के साइज़ का एक खाली मास्क बनाएं
-    mask = np.zeros((height, width), dtype=np.uint8)
+    # ग्रेस्केल इमेज बनाएं
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-    # Housing.com का वाटरमार्क अलमारी के जिस फिक्स पोजीशन पर होता है, उसका एरिया सेट करें
-    # y (ऊंचाई): 35% से 65%, x (चौड़ाई): 43% से 52%
+    # हाउसिंग वाटरमार्क की फिक्स पोजीशन (अलमारी वाला क्षेत्र)
     y1, y2 = int(height * 0.35), int(height * 0.65)
     x1, x2 = int(width * 0.43), int(width * 0.52)
     
-    # उस फिक्स बॉक्स को पूरी तरह सफेद (255) कर दें ताकि OpenCV सीधे उस हिस्से को साफ़ कर सके
-    mask[y1:y2, x1:x2] = 255
+    # केवल उस फिक्स एरिया (ROI) को काट लें जहाँ वाटरमार्क होता है
+    roi_gray = gray[y1:y2, x1:x2]
     
-    # Inpainting के जरिए उस पोजीशन से वाटरमार्क को हटाकर बैकग्राउंड भर दिया जाएगा
-    dst = cv2.inpaint(img, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+    # पारदर्शी और हल्के वाटरमार्क को पकड़ने के लिए सेंसिटिव थ्रेशोल्ड लगाएं
+    _, roi_thresh = cv2.threshold(roi_gray, 180, 255, cv2.THRESH_BINARY)
+    
+    # मास्क को साफ़ करने के लिए छोटा कर्नेल
+    kernel = np.ones((2, 2), np.uint8)
+    roi_mask = cv2.dilate(roi_thresh, kernel, iterations=1)
+    
+    # पूरी इमेज के साइज़ का खाली मास्क बनाएं
+    mask = np.zeros((height, width), dtype=np.uint8)
+    
+    # उस फिक्स पोजीशन वाले मास्क को मुख्य मास्क में फिट करें
+    mask[y1:y2, x1:x2] = roi_mask
+    
+    # अब सिर्फ वाटरमार्क वाले पिक्सल्स पर ही Inpainting होगी, बाकी अलमारी सुरक्षित रहेगी
+    dst = cv2.inpaint(img, mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
     
     cv2.imwrite(output_path, dst)
     return True
@@ -86,7 +98,7 @@ def index():
         <div class="container">
             <div class="card">
                 <h2>⚡ High-Speed Watermark Remover</h2>
-                <p>एक साथ 10-20 इमेजेस अपलोड करें। फिक्स पोजीशन रिमूवल से तुरंत साफ़ फाइल पाएं!</p>
+                <p>एक साथ 10-20 इमेजेस अपलोड करें। सटीक फिक्स पोजीशन थ्रेशोल्डिंग से तुरंत साफ़ फाइल पाएं!</p>
                 <form id="uploadForm" enctype="multipart/form-data">
                     <input type="file" name="images" multiple accept="image/*" required>
                     <button type="submit" id="subBtn">वाटरमार्क हटाएं और प्रोसेस करें</button>
