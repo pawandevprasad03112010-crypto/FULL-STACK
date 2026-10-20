@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import zipfile
 import shutil
 
-app = FastAPI(title="Lightning Fast Watermark Remover")
+app = FastAPI(title="Smart Watermark Remover")
 
 UPLOAD_FOLDER = 'uploads'
 OUTPUT_FOLDER = 'outputs'
@@ -16,7 +16,6 @@ OUTPUT_FOLDER = 'outputs'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# आउटपुट फोल्डर को माउंट करें ताकि इमेजेस सीधे ब्राउज़र में दिख सकें
 app.mount("/outputs", StaticFiles(directory=OUTPUT_FOLDER), name="outputs")
 
 def remove_watermark(image_path, output_path):
@@ -24,32 +23,28 @@ def remove_watermark(image_path, output_path):
     if img is None:
         return False
     
-    height, width = img.shape[:2]
-    
-    # ग्रेस्केल इमेज बनाएं
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-    # हाउसिंग वाटरमार्क की फिक्स पोजीशन (अलमारी वाला क्षेत्र)
-    y1, y2 = int(height * 0.35), int(height * 0.65)
-    x1, x2 = int(width * 0.43), int(width * 0.52)
+    # 1. Adaptive Thresholding का उपयोग करें जो लोकल लाइटिंग और ट्रांसपेरेंसी को बेहतर समझता है
+    # यह खिड़की या दीवार जैसी बड़ी समतल जगहों को छेड़े बिना केवल टेक्स्ट/लोगो के किनारों को पकड़ेगा
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                  cv2.THRESH_BINARY_INV, 11, 2)
     
-    # केवल उस फिक्स एरिया (ROI) को काट लें जहाँ वाटरमार्क होता है
-    roi_gray = gray[y1:y2, x1:x2]
+    # 2. कंटूर डिटेक्शन (Contours) से केवल वाटरमार्क जैसे छोटे और विशिष्ट आकारों को अलग करें
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # पारदर्शी और हल्के वाटरमार्क को पकड़ने के लिए सेंसिटिव थ्रेशोल्ड लगाएं
-    _, roi_thresh = cv2.threshold(roi_gray, 180, 255, cv2.THRESH_BINARY)
+    mask = np.zeros_like(gray)
+    for c in contours:
+        area = cv2.contourArea(c)
+        # वाटरमार्क के अक्षरों/डिजाइन का साइज एक तय सीमा में होता है, उसे ही टारगेट करें
+        if 15 < area < 600:
+            cv2.drawContours(mask, [c], -1, 255, -1)
+            
+    # मास्क को हल्का सा फैलाएं ताकि लोगो के किनारे पूरी तरह कवर हो जाएं
+    kernel = np.ones((3, 3), np.uint8)
+    mask = cv2.dilate(mask, kernel, iterations=1)
     
-    # मास्क को साफ़ करने के लिए छोटा कर्नेल
-    kernel = np.ones((2, 2), np.uint8)
-    roi_mask = cv2.dilate(roi_thresh, kernel, iterations=1)
-    
-    # पूरी इमेज के साइज़ का खाली मास्क बनाएं
-    mask = np.zeros((height, width), dtype=np.uint8)
-    
-    # उस फिक्स पोजीशन वाले मास्क को मुख्य मास्क में फिट करें
-    mask[y1:y2, x1:x2] = roi_mask
-    
-    # अब सिर्फ वाटरमार्क वाले पिक्सल्स पर ही Inpainting होगी, बाकी अलमारी सुरक्षित रहेगी
+    # 3. सटीक इनपेंटिंग (Inpainting) ताकि केवल डिटेक्टेड वाटरमार्क हटे
     dst = cv2.inpaint(img, mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
     
     cv2.imwrite(output_path, dst)
@@ -63,7 +58,7 @@ def index():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>⚡ Super Fast Watermark Remover</title>
+        <title>⚡ Smart Watermark Remover</title>
         <style>
             body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 30px; margin: 0; }
             .container { max-width: 900px; margin: auto; }
@@ -75,7 +70,6 @@ def index():
             button:hover { background: #0369a1; }
             .loader { display: none; margin-top: 15px; color: #38bdf8; font-size: 14px; font-weight: bold; }
             
-            /* रिजल्ट गैलरी स्टाइल */
             #results-section { display: none; background: #1e293b; padding: 25px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); text-align: left; }
             .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; margin-top: 20px; }
             .image-card { background: #0f172a; border-radius: 8px; padding: 10px; text-align: center; border: 1px solid #334155; }
@@ -88,7 +82,6 @@ def index():
             .btn-all { background: #8b5cf6; padding: 12px 25px; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block; }
             .btn-all:hover { background: #7c3aed; }
 
-            /* Modal (बड़ा इमेज देखने के लिए) */
             .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8); text-align: center; }
             .modal-content { max-width: 85%; max-height: 85vh; margin-top: 5vh; border-radius: 8px; box-shadow: 0 0 20px rgba(255,255,255,0.2); }
             .close { position: absolute; top: 20px; right: 35px; color: #f1f1f1; font-size: 40px; font-weight: bold; cursor: pointer; }
@@ -97,13 +90,13 @@ def index():
     <body>
         <div class="container">
             <div class="card">
-                <h2>⚡ High-Speed Watermark Remover</h2>
-                <p>एक साथ 10-20 इमेजेस अपलोड करें। सटीक फिक्स पोजीशन थ्रेशोल्डिंग से तुरंत साफ़ फाइल पाएं!</p>
+                <h2>⚡ Smart Watermark Remover</h2>
+                <p>एक साथ 10-20 इमेजेस अपलोड करें। स्मार्ट कंटूर स्कैनिंग से तुरंत साफ़ फाइल पाएं!</p>
                 <form id="uploadForm" enctype="multipart/form-data">
                     <input type="file" name="images" multiple accept="image/*" required>
                     <button type="submit" id="subBtn">वाटरमार्क हटाएं और प्रोसेस करें</button>
                 </form>
-                <div class="loader" id="loadingText">इमेजेस प्रोसेस हो रही हैं, कृपया प्रतीक्षा करें...</div>
+                <div class="loader" id="loadingText">इमेजेस स्कैन और प्रोसेस हो रही हैं, कृपया प्रतीक्षा करें...</div>
             </div>
 
             <div id="results-section">
@@ -113,7 +106,6 @@ def index():
             </div>
         </div>
 
-        <!-- Modal for Zoom -->
         <div id="imageModal" class="modal">
             <span class="close" onclick="closeModal()">&times;</span>
             <img class="modal-content" id="modalImg">
@@ -211,7 +203,6 @@ async def process_images(images: list[UploadFile] = File(...)):
             return output_filename
         return None
 
-    # Multi-threading के जरिए सभी इमेजेस एक साथ सुपर-फास्ट तरीके से प्रोसेस होंगी
     with ThreadPoolExecutor(max_workers=8) as executor:
         results = list(executor.map(process_single, saved_files))
         processed_filenames = [r for r in results if r]
