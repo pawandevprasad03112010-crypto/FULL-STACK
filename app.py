@@ -26,28 +26,19 @@ def remove_watermark(image_path, output_path):
     
     height, width = img.shape[:2]
     
-    # ग्रेस्केल इमेज बनाएं
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 195, 255, cv2.THRESH_BINARY)
+    # पूरी इमेज के साइज़ का एक खाली मास्क बनाएं
+    mask = np.zeros((height, width), dtype=np.uint8)
     
-    # हाउसिंग वाटरमार्क की फिक्स पोजीशन (अलमारी वाला क्षेत्र)
-    # y (ऊंचाई): 30% से 80%, x (चौड़ाई): 40% से 55%
-    y1, y2 = int(height * 0.3), int(height * 0.8)
-    x1, x2 = int(width * 0.4), int(width * 0.55)
+    # Housing.com का वाटरमार्क अलमारी के जिस फिक्स पोजीशन पर होता है, उसका एरिया सेट करें
+    # y (ऊंचाई): 35% से 65%, x (चौड़ाई): 43% से 52%
+    y1, y2 = int(height * 0.35), int(height * 0.65)
+    x1, x2 = int(width * 0.43), int(width * 0.52)
     
-    # एक खाली मास्क बनाएं
-    mask = np.zeros_like(gray)
+    # उस फिक्स बॉक्स को पूरी तरह सफेद (255) कर दें ताकि OpenCV सीधे उस हिस्से को साफ़ कर सके
+    mask[y1:y2, x1:x2] = 255
     
-    # केवल अलमारी वाले विशिष्ट क्षेत्र (ROI) में वाटरमार्क डिटेक्ट करें ताकि खिड़की सुरक्षित रहे
-    roi_thresh = thresh[y1:y2, x1:x2]
-    kernel = np.ones((3, 3), np.uint8)
-    roi_mask = cv2.dilate(roi_thresh, kernel, iterations=1)
-    
-    # मुख्य मास्क में इस क्षेत्र को जोड़ें
-    mask[y1:y2, x1:x2] = roi_mask
-    
-    # Inpainting के जरिए केवल इसी टारगेटेड पोजीशन से वाटरमार्क हटाया जाएगा
-    dst = cv2.inpaint(img, mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+    # Inpainting के जरिए उस पोजीशन से वाटरमार्क को हटाकर बैकग्राउंड भर दिया जाएगा
+    dst = cv2.inpaint(img, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
     
     cv2.imwrite(output_path, dst)
     return True
@@ -95,7 +86,7 @@ def index():
         <div class="container">
             <div class="card">
                 <h2>⚡ High-Speed Watermark Remover</h2>
-                <p>एक साथ 10-20 इमेजेस अपलोड करें। सटीक पोजीशन स्कैनिंग से तुरंत साफ़ फाइल पाएं!</p>
+                <p>एक साथ 10-20 इमेजेस अपलोड करें। फिक्स पोजीशन रिमूवल से तुरंत साफ़ फाइल पाएं!</p>
                 <form id="uploadForm" enctype="multipart/form-data">
                     <input type="file" name="images" multiple accept="image/*" required>
                     <button type="submit" id="subBtn">वाटरमार्क हटाएं और प्रोसेस करें</button>
@@ -208,7 +199,7 @@ async def process_images(images: list[UploadFile] = File(...)):
             return output_filename
         return None
 
-    # Multi-threading के जरिए सभी इमेजेस एक साथ प्रोसेस होंगी
+    # Multi-threading के जरिए सभी इमेजेस एक साथ सुपर-फास्ट तरीके से प्रोसेस होंगी
     with ThreadPoolExecutor(max_workers=8) as executor:
         results = list(executor.map(process_single, saved_files))
         processed_filenames = [r for r in results if r]
