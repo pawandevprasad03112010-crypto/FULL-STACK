@@ -24,14 +24,18 @@ def remove_watermark(image_path, output_path):
     if img is None:
         return False
     
-    # इमेज को स्कैन करके हाउसिंग (Housing.com) या अन्य सफेद/ब्राइट वाटरमार्क डिटेक्ट करना
+    # ग्रेस्केल में बदलें
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 210, 255, cv2.THRESH_BINARY)
-    kernel = np.ones((3, 3), np.uint8)
-    mask = cv2.dilate(thresh, kernel, iterations=1)
     
-    # वाटरमार्क हटाकर बैकग्राउंड को इनपेंट करना
-    dst = cv2.inpaint(img, mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+    # थ्रेशोल्ड वैल्यू को 190 किया गया है ताकि पारदर्शी और हल्के वाटरमार्क्स भी आसानी से पकड़ में आ जाएं
+    _, thresh = cv2.threshold(gray, 190, 255, cv2.THRESH_BINARY)
+    
+    # बड़े लोगो/वाटरमार्क क्षेत्र को पूरी तरह कवर करने के लिए Kernel और Dilation को मजबूत किया गया है
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.dilate(thresh, kernel, iterations=2)
+    
+    # OpenCV Inpainting (Telea Algorithm) का उपयोग करके वाटरमार्क हटाना
+    dst = cv2.inpaint(img, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
     cv2.imwrite(output_path, dst)
     return True
 
@@ -78,7 +82,7 @@ def index():
         <div class="container">
             <div class="card">
                 <h2>⚡ High-Speed Watermark Remover</h2>
-                <p>एक साथ 10-20 इमेजेस अपलोड करें। पैरेलल प्रोसेसिंग से तुरंत साफ़ फाइल पाएं!</p>
+                <p>एक साथ 10-20 इमेजेस अपलोड करें। एडवांस्ड स्कैनिंग से तुरंत साफ़ फाइल पाएं!</p>
                 <form id="uploadForm" enctype="multipart/form-data">
                     <input type="file" name="images" multiple accept="image/*" required>
                     <button type="submit" id="subBtn">वाटरमार्क हटाएं और स्कैन करें</button>
@@ -191,6 +195,7 @@ async def process_images(images: list[UploadFile] = File(...)):
             return output_filename
         return None
 
+    # Multi-threading के जरिए सभी इमेजेस एक साथ प्रोसेस होंगी
     with ThreadPoolExecutor(max_workers=8) as executor:
         results = list(executor.map(process_single, saved_files))
         processed_filenames = [r for r in results if r]
@@ -210,3 +215,4 @@ async def process_images(images: list[UploadFile] = File(...)):
         "files": processed_filenames,
         "zip_file": zip_filename
     })
+    
