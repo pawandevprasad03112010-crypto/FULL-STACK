@@ -28,33 +28,25 @@ executor = ThreadPoolExecutor(max_workers=10)
 UPLOADED_FILES_CACHE = {}
 
 def extract_media_images(data):
+    """ सीधे आपके JSON स्ट्रक्चर के media -> images से केवल प्रॉपर्टी की तस्वीरें निकालेगा """
     images = []
-    def recursive_search(obj, parent_key=""):
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                # प्रोफाइल, यूजर, कॉंटेक्ट या अवतार वाले URLs को पूरी तरह से इग्नोर करना
-                if any(bad_word in k.lower() for bad_word in ['profile', 'user', 'contact', 'avatar', 'agent', 'builder_logo']):
-                    continue
-                
-                if isinstance(v, str) and (v.startswith('http://') or v.startswith('https://')):
-                    v_lower = v.lower()
-                    if any(bad in v_lower for bad in ['profile', 'user', 'contact', 'avatar', 'default']):
-                        continue
-                    
-                    # केवल असली प्रॉपर्टी और मीडिया इमेजेस वाले URLs को चुनना
-                    if any(term in v_lower for term in ['media', 'img', 'image', 'property', '.jpg', '.jpeg', '.png', '.webp', '99acres']):
-                        if v not in images:
-                            images.append(v)
-                else:
-                    recursive_search(v, parent_key=k)
-        elif isinstance(obj, list):
-            for item in obj:
-                recursive_search(item, parent_key=parent_key)
-                
-    recursive_search(data)
+    try:
+        # सीधे media.images को टारगेट करना ताकि कोई गलत फोटो या प्रोफाइल आइकन न आए
+        media_section = data.get("media", {})
+        if isinstance(media_section, dict):
+            img_list = media_section.get("images", [])
+            if isinstance(img_list, list):
+                for img_url in img_list:
+                    if isinstance(img_url, str) and img_url.startswith("http"):
+                        if img_url not in images:
+                            images.append(img_url)
+    except Exception as e:
+        print(f"Error extracting images: {e}")
+        
     return images
 
 def update_images_in_json(obj, old_to_new_map):
+    """ JSON के अंदर पुराने 99acres वाले यूआरएल को नए S3 वाले यूआरएल से रिप्लेस करेगा """
     if isinstance(obj, dict):
         for k, v in obj.items():
             if isinstance(v, str) and v in old_to_new_map:
@@ -140,6 +132,12 @@ async def migrate(data: dict):
             except Exception as ex:
                 print(f"Failed to migrate {img_url}: {ex}")
 
+        # JSON के अंदर मीडिया लिस्ट को अपडेट करना
+        if "media" in json_data and isinstance(json_data["media"], dict):
+            if "images" in json_data["media"] and isinstance(json_data["media"]["images"], list):
+                updated_media_images = [old_to_new_map.get(img, img) for img in json_data["media"]["images"] if img in old_to_new_map]
+                json_data["media"]["images"] = updated_media_images
+
         update_images_in_json(json_data, old_to_new_map)
         updated_json_bytes = json.dumps(json_data, indent=2, ensure_ascii=False).encode('utf-8')
         return filename, updated_json_bytes
@@ -184,6 +182,8 @@ async def save_to_dynamodb(data: dict):
 
         try:
             json_data = json.loads(original_bytes.decode('utf-8'))
+            
+            # यदि S3 माइग्रेशन के बाद के लिंक्स सेव करने हों, तो यह सुनिश्चित करता है कि डेटा सही हो
             if PRIMARY_KEY not in json_data:
                 prop_id = filename.split('_')[1].split('.')[0] if '_' in filename else str(uuid.uuid4())
                 json_data[PRIMARY_KEY] = prop_id
