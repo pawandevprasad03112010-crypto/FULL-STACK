@@ -4,19 +4,17 @@ import io
 import json
 import uuid
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+import httpx
 import boto3
-import requests
 from fastapi import FastAPI, UploadFile, File, Request, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 app = FastAPI()
 
-# Jinja2 templates folder set karna
 templates = Jinja2Templates(directory="templates")
 
-# Aapke AWS aur DynamoDB credentials
+# आपके AWS और DynamoDB क्रेडेंशियल्स
 AWS_ACCESS_KEY_ID = "AKIA32VVAONMQV5QKNED"
 AWS_SECRET_ACCESS_KEY = "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"
 REGION = "ap-south-1"
@@ -24,9 +22,6 @@ BUCKET_NAME = "property-images-estatex-1"
 TABLE_NAME = "LARGE_PROPERTY_LISTING"
 PRIMARY_KEY = "property_id"
 
-executor = ThreadPoolExecutor(max_workers=10)
-
-# Temporary folder disk par files save karne ke liye taaki data loss na ho
 TEMP_DIR = "/tmp/listings_cache"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
@@ -65,7 +60,6 @@ async def index(request: Request):
 
 @app.post("/upload", response_class=HTMLResponse)
 async def upload(request: Request, zippfile: UploadFile = File(...)):
-    # Purane cache files ko clear karna
     for f in os.listdir(TEMP_DIR):
         file_path = os.path.join(TEMP_DIR, f)
         if os.path.isfile(file_path):
@@ -78,7 +72,6 @@ async def upload(request: Request, zippfile: UploadFile = File(...)):
         for filename in z.namelist():
             if filename.endswith('.json') and not filename.startswith('__MACOSX'):
                 file_bytes = z.read(filename)
-                # Disk par safely save karna
                 safe_path = os.path.join(TEMP_DIR, filename)
                 with open(safe_path, "wb") as f_out:
                     f_out.write(file_bytes)
@@ -111,7 +104,7 @@ async def migrate(data: dict):
 
     output_zip = io.BytesIO()
 
-    def process_single_listing(listing):
+    async def process_listing_async(client, listing):
         filename = listing['filename']
         retained_images = listing['images']
         
@@ -125,9 +118,9 @@ async def migrate(data: dict):
         json_data = json.loads(original_bytes.decode('utf-8'))
         old_to_new_map = {}
 
-        for img_url in retained_images:
+        async def download_and_upload(img_url):
             try:
-                resp = requests.get(img_url, timeout=10)
+                resp = await client.get(img_url, timeout=15.0, follow_redirects=True)
                 if resp.status_code == 200:
                     img_bytes = resp.content
                     file_ext = img_url.split('?')[0].split('.')[-1]
@@ -135,12 +128,27 @@ async def migrate(data: dict):
                         file_ext = 'jpg'
                     
                     s3_key = f"listings_images/{uuid.uuid4()}.{file_ext}"
-                    s3.put_object(Bucket=BUCKET_NAME, Key=s3_key, Body=img_bytes, ContentType=f'image/{file_ext}')
+                    
+                    await asyncio.to_thread(
+                        s3.put_object,
+                        Bucket=BUCKET_NAME,
+                        Key=s3_key,
+                        Body=img_bytes,
+                        ContentType=f'image/{file_ext}'
+                    )
                     
                     s3_url = f"https://{BUCKET_NAME}.s3.{REGION}.amazonaws.com/{s3_key}"
-                    old_to_new_map[img_url] = s3_url
+                    return img_url, s3_url
             except Exception as ex:
                 print(f"Failed to migrate {img_url}: {ex}")
+            return img_url, None
+
+        tasks = [download_and_upload(img_url) for img_url in retained_images]
+        results = await asyncio.gather(*tasks)
+
+        for old_url, new_url in results:
+            if new_url:
+                old_to_new_map[old_url] = new_url
 
         if "media" in json_data and isinstance(json_data["media"], dict):
             if "images" in json_data["media"] and isinstance(json_data["media"]["images"], list):
@@ -151,12 +159,18 @@ async def migrate(data: dict):
         updated_json_bytes = json.dumps(json_data, indent=2, ensure_ascii=False).encode('utf-8')
         return filename, updated_json_bytes
 
-    with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as z_out:
-        loop = asyncio.get_running_loop()
-        tasks = [loop.run_in_executor(executor, process_single_listing, listing) for listing in listings_data]
-        results = await asyncio.gather(*tasks)
+    async with httpx.AsyncClient() as client:
+        semaphore = asyncio.Semaphore(15)
+        
+        async def bounded_process(listing):
+            async with semaphore:
+                return await process_listing_async(client, listing)
 
-        for filename, updated_bytes in results:
+        all_tasks = [bounded_process(listing) for listing in listings_data]
+        completed_results = await asyncio.gather(*all_tasks)
+
+    with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as z_out:
+        for filename, updated_bytes in completed_results:
             if filename and updated_bytes:
                 z_out.writestr(filename, updated_bytes)
 
@@ -203,5 +217,5 @@ async def save_to_dynamodb(data: dict):
         except Exception as ex:
             print(f"Failed to save {filename} to DynamoDB: {ex}")
 
-    return {"message": f"Safalta पूर्वक {saved_count} listings DynamoDB table '{TABLE_NAME}' mein save ho gayi hain!"}
-    
+    return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव कर दी गई हैं!"}
+            
