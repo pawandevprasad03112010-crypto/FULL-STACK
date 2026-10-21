@@ -7,10 +7,14 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import boto3
 import requests
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Request, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
 
 app = FastAPI()
+
+# Jinja2 टेम्पलेट फोल्डर सेट करना
+templates = Jinja2Templates(directory="templates")
 
 # आपके AWS और DynamoDB क्रेडेंशियल्स
 AWS_ACCESS_KEY_ID = "AKIA32VVAONMQV5QKNED"
@@ -22,148 +26,6 @@ PRIMARY_KEY = "property_id"
 
 executor = ThreadPoolExecutor(max_workers=10)
 UPLOADED_FILES_CACHE = {}
-
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="hi">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Only Broker - S3 & DynamoDB Migrator</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-100 min-h-screen font-sans">
-    <div class="container mx-auto px-4 py-8 max-w-6xl">
-        <header class="bg-white shadow rounded-lg p-6 mb-8 text-center">
-            <h1 class="text-3xl font-bold text-gray-800">Only Broker - ऑटोमैटिक S3 और DynamoDB माइग्रेटर</h1>
-            <p class="text-gray-600 mt-2">क्रेडेंशियल्स पहले से सेट हैं। अपनी ज़िप फ़ाइल अपलोड करें और मैनेज करें।</p>
-        </header>
-
-        {% if not listings %}
-        <div class="bg-white shadow rounded-lg p-8 max-w-xl mx-auto">
-            <form action="/upload" method="POST" enctype="multipart/form-data" class="space-y-6">
-                <div>
-                    <label class="block text-lg font-medium text-gray-700 mb-2">लिस्टिंग ज़िप फ़ाइल अपलोड करें (.zip)</label>
-                    <input type="file" name="zippfile" accept=".zip" required class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-                </div>
-                <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition">अपलोड और पार्स करें</button>
-            </form>
-        </div>
-        {% else %}
-        <div class="bg-green-50 border border-green-200 shadow rounded-lg p-4 mb-6 text-green-800 font-medium text-center">
-            ✓ AWS S3 और DynamoDB क्रेडेंशियल्स एक्टिव हैं। नीचे अपनी लिस्टिंग चेक करें।
-        </div>
-
-        <div class="space-y-6" id="listings-container">
-            {% for item in listings %}
-            <div class="bg-white shadow rounded-lg p-6 listing-card" data-filename="{{ item.filename }}">
-                <h3 class="text-xl font-bold text-indigo-700 mb-4 border-b pb-2">लिस्टिंग #{{ loop.index }}: {{ item.filename }}</h3>
-                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 image-grid">
-                    {% for img in item.images %}
-                    <div class="relative border rounded p-2 bg-gray-50 image-item" data-url="{{ img }}">
-                        <img src="{{ img }}" alt="Media Image" class="w-full h-32 object-cover rounded mb-2" onerror="this.src='https://via.placeholder.com/150?text=Image+Error'">
-                        <p class="text-xs text-gray-500 truncate mb-2" title="{{ img }}">{{ img }}</p>
-                        <button onclick="removeImage(this)" class="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-700 font-bold">&times;</button>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-
-        <div class="mt-8 sticky bottom-4 bg-white shadow-xl rounded-lg p-4 flex flex-col sm:flex-row justify-between items-center border gap-4 z-50">
-            <span class="font-semibold text-gray-700">कुल लिस्टिंग: {{ listings|length }}</span>
-            <div class="flex gap-3">
-                <button onclick="startMigration()" class="bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition shadow-lg">S3 पर माइग्रेट करें & ज़िप डाउनलोड करें</button>
-                <button onclick="saveToDynamoDB()" class="bg-purple-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-purple-700 transition shadow-lg">DynamoDB में सेव करें</button>
-            </div>
-        </div>
-        {% endif %}
-    </div>
-
-    <script>
-        function removeImage(btn) {
-            btn.closest('.image-item').remove();
-        }
-
-        async function getListingsData() {
-            const listingsData = [];
-            document.querySelectorAll('.listing-card').forEach(card => {
-                const filename = card.getAttribute('data-filename');
-                const images = [];
-                card.querySelectorAll('.image-item').forEach(item => {
-                    images.push(item.getAttribute('data-url'));
-                });
-                listingsData.push({ filename, images });
-            });
-            return listingsData;
-        }
-
-        async function startMigration() {
-            const listingsData = await getListingsData();
-            const btn = event.target;
-            btn.textContent = 'S3 पर माइग्रेट हो रहा है...';
-            btn.disabled = true;
-
-            try {
-                const response = await fetch('/migrate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ listings: listingsData })
-                });
-
-                if(response.ok) {
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'updated_listings_s3.zip';
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    alert('माइग्रेशन सफल! S3 यूआरएल अपडेट हो गए हैं और ज़िप डाउनलोड हो गई है।');
-                } else {
-                    const err = await response.json();
-                    alert('माइग्रेशन असफल: ' + (err.detail || 'त्रुटि'));
-                }
-            } catch(e) {
-                alert('त्रुटि: ' + e.message);
-            } finally {
-                btn.textContent = 'S3 पर माइग्रेट करें & ज़िप डाउनलोड करें';
-                btn.disabled = false;
-            }
-        }
-
-        async function saveToDynamoDB() {
-            const listingsData = await getListingsData();
-            const btn = event.target;
-            btn.textContent = 'DynamoDB में सेव हो रहा है...';
-            btn.disabled = true;
-
-            try {
-                const response = await fetch('/save-dynamodb', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ listings: listingsData })
-                });
-
-                const result = await response.json();
-                if(response.ok) {
-                    alert(result.message);
-                } else {
-                    alert('सेव करने में असफल: ' + (result.detail || 'त्रुटि'));
-                }
-            } catch(e) {
-                alert('त्रुटि: ' + e.message);
-            } finally {
-                btn.textContent = 'DynamoDB में सेव करें';
-                btn.disabled = false;
-            }
-        }
-    </script>
-</body>
-</html>
-"""
 
 def extract_media_images(data):
     images = []
@@ -197,11 +59,11 @@ def update_images_in_json(obj, old_to_new_map):
                 update_images_in_json(item, old_to_new_map)
 
 @app.get("/", response_class=HTMLResponse)
-async def index():
-    return HTML_TEMPLATE.replace("{% if not listings %}", "{% if true %}").replace("{% else %}", "").replace("{% endif %}", "")
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request, "listings": None})
 
 @app.post("/upload", response_class=HTMLResponse)
-async def upload(zippfile: UploadFile = File(...)):
+async def upload(request: Request, zippfile: UploadFile = File(...)):
     global UPLOADED_FILES_CACHE
     UPLOADED_FILES_CACHE.clear()
 
@@ -223,29 +85,7 @@ async def upload(zippfile: UploadFile = File(...)):
                 except Exception as e:
                     print(f"Error parsing {filename}: {e}")
 
-    cards_html = ""
-    for idx, item in enumerate(listings):
-        imgs_html = ""
-        for img in item['images']:
-            imgs_html += f'''
-            <div class="relative border rounded p-2 bg-gray-50 image-item" data-url="{img}">
-                <img src="{img}" alt="Image" class="w-full h-32 object-cover rounded mb-2" onerror="this.src='https://via.placeholder.com/150?text=Error'">
-                <p class="text-xs text-gray-500 truncate mb-2" title="{img}">{img}</p>
-                <button onclick="removeImage(this)" class="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-700 font-bold">&times;</button>
-            </div>
-            '''
-        cards_html += f'''
-        <div class="bg-white shadow rounded-lg p-6 listing-card" data-filename="{item['filename']}">
-            <h3 class="text-xl font-bold text-indigo-700 mb-4 border-b pb-2">लिस्टिंग #{idx+1}: {item['filename']}</h3>
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 image-grid">{imgs_html}</div>
-        </div>
-        '''
-
-    final_page = HTML_TEMPLATE.replace('{% if not listings %}\n        <div class="bg-white shadow rounded-lg p-8 max-w-xl mx-auto">.*?</div>\n        {% else %}', '')
-    final_page = final_page.replace('{% for item in listings %}.*?{% endfor %}', cards_html)
-    final_page = final_page.replace('{{ listings|length }}', str(len(listings)))
-    final_page = final_page.replace('{% if not listings %}', '').replace('{% else %}', '').replace('{% endif %}', '')
-    return HTMLResponse(content=final_page)
+    return templates.TemplateResponse("index.html", {"request": request, "listings": listings})
 
 @app.post("/migrate")
 async def migrate(data: dict):
@@ -344,3 +184,4 @@ async def save_to_dynamodb(data: dict):
             print(f"Failed to save {filename} to DynamoDB: {ex}")
 
     return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव कर दी गई हैं!"}
+                
