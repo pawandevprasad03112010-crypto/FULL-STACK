@@ -29,18 +29,28 @@ UPLOADED_FILES_CACHE = {}
 
 def extract_media_images(data):
     images = []
-    def recursive_search(obj):
+    def recursive_search(obj, parent_key=""):
         if isinstance(obj, dict):
             for k, v in obj.items():
+                # प्रोफाइल, यूजर, कॉंटेक्ट या अवतार वाले URLs को पूरी तरह से इग्नोर करना
+                if any(bad_word in k.lower() for bad_word in ['profile', 'user', 'contact', 'avatar', 'agent', 'builder_logo']):
+                    continue
+                
                 if isinstance(v, str) and (v.startswith('http://') or v.startswith('https://')):
-                    if any(term in v.lower() for term in ['media', 'img', 'image', '.jpg', '.jpeg', '.png', '.webp', '99acres']):
+                    v_lower = v.lower()
+                    if any(bad in v_lower for bad in ['profile', 'user', 'contact', 'avatar', 'default']):
+                        continue
+                    
+                    # केवल असली प्रॉपर्टी और मीडिया इमेजेस वाले URLs को चुनना
+                    if any(term in v_lower for term in ['media', 'img', 'image', 'property', '.jpg', '.jpeg', '.png', '.webp', '99acres']):
                         if v not in images:
                             images.append(v)
                 else:
-                    recursive_search(v)
+                    recursive_search(v, parent_key=k)
         elif isinstance(obj, list):
             for item in obj:
-                recursive_search(item)
+                recursive_search(item, parent_key=parent_key)
+                
     recursive_search(data)
     return images
 
@@ -184,4 +194,4 @@ async def save_to_dynamodb(data: dict):
             print(f"Failed to save {filename} to DynamoDB: {ex}")
 
     return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव कर दी गई हैं!"}
-                
+    
