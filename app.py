@@ -13,10 +13,10 @@ from fastapi.templating import Jinja2Templates
 
 app = FastAPI()
 
-# Jinja2 टेम्पलेट फोल्डर सेट करना
+# Jinja2 templates folder set karna
 templates = Jinja2Templates(directory="templates")
 
-# आपके AWS और DynamoDB क्रेडेंशियल्स
+# Aapke AWS aur DynamoDB credentials
 AWS_ACCESS_KEY_ID = "AKIA32VVAONMQV5QKNED"
 AWS_SECRET_ACCESS_KEY = "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"
 REGION = "ap-south-1"
@@ -25,13 +25,14 @@ TABLE_NAME = "LARGE_PROPERTY_LISTING"
 PRIMARY_KEY = "property_id"
 
 executor = ThreadPoolExecutor(max_workers=10)
-UPLOADED_FILES_CACHE = {}
+
+# Temporary folder disk par files save karne ke liye taaki data loss na ho
+TEMP_DIR = "/tmp/listings_cache"
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 def extract_media_images(data):
-    """ सीधे आपके JSON स्ट्रक्चर के media -> images से केवल प्रॉपर्टी की तस्वीरें निकालेगा """
     images = []
     try:
-        # सीधे media.images को टारगेट करना ताकि कोई गलत फोटो या प्रोफाइल आइकन न आए
         media_section = data.get("media", {})
         if isinstance(media_section, dict):
             img_list = media_section.get("images", [])
@@ -42,11 +43,9 @@ def extract_media_images(data):
                             images.append(img_url)
     except Exception as e:
         print(f"Error extracting images: {e}")
-        
     return images
 
 def update_images_in_json(obj, old_to_new_map):
-    """ JSON के अंदर पुराने 99acres वाले यूआरएल को नए S3 वाले यूआरएल से रिप्लेस करेगा """
     if isinstance(obj, dict):
         for k, v in obj.items():
             if isinstance(v, str) and v in old_to_new_map:
@@ -66,8 +65,11 @@ async def index(request: Request):
 
 @app.post("/upload", response_class=HTMLResponse)
 async def upload(request: Request, zippfile: UploadFile = File(...)):
-    global UPLOADED_FILES_CACHE
-    UPLOADED_FILES_CACHE.clear()
+    # Purane cache files ko clear karna
+    for f in os.listdir(TEMP_DIR):
+        file_path = os.path.join(TEMP_DIR, f)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
 
     contents = await zippfile.read()
     listings = []
@@ -76,7 +78,11 @@ async def upload(request: Request, zippfile: UploadFile = File(...)):
         for filename in z.namelist():
             if filename.endswith('.json') and not filename.startswith('__MACOSX'):
                 file_bytes = z.read(filename)
-                UPLOADED_FILES_CACHE[filename] = file_bytes
+                # Disk par safely save karna
+                safe_path = os.path.join(TEMP_DIR, filename)
+                with open(safe_path, "wb") as f_out:
+                    f_out.write(file_bytes)
+                
                 try:
                     data = json.loads(file_bytes.decode('utf-8'))
                     images = extract_media_images(data)
@@ -101,16 +107,20 @@ async def migrate(data: dict):
             region_name=REGION
         )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"S3 कनेक्शन विफल: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"S3 connection failed: {str(e)}")
 
     output_zip = io.BytesIO()
 
     def process_single_listing(listing):
         filename = listing['filename']
         retained_images = listing['images']
-        original_bytes = UPLOADED_FILES_CACHE.get(filename)
-        if not original_bytes:
+        
+        file_path = os.path.join(TEMP_DIR, filename)
+        if not os.path.exists(file_path):
             return None, None
+
+        with open(file_path, "rb") as f_in:
+            original_bytes = f_in.read()
 
         json_data = json.loads(original_bytes.decode('utf-8'))
         old_to_new_map = {}
@@ -132,7 +142,6 @@ async def migrate(data: dict):
             except Exception as ex:
                 print(f"Failed to migrate {img_url}: {ex}")
 
-        # JSON के अंदर मीडिया लिस्ट को अपडेट करना
         if "media" in json_data and isinstance(json_data["media"], dict):
             if "images" in json_data["media"] and isinstance(json_data["media"]["images"], list):
                 updated_media_images = [old_to_new_map.get(img, img) for img in json_data["media"]["images"] if img in old_to_new_map]
@@ -171,19 +180,20 @@ async def save_to_dynamodb(data: dict):
         )
         table = dynamodb.Table(TABLE_NAME)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"DynamoDB कनेक्शन विफल: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"DynamoDB connection failed: {str(e)}")
 
     saved_count = 0
     for listing in listings_data:
         filename = listing['filename']
-        original_bytes = UPLOADED_FILES_CACHE.get(filename)
-        if not original_bytes:
+        file_path = os.path.join(TEMP_DIR, filename)
+        if not os.path.exists(file_path):
             continue
 
         try:
+            with open(file_path, "rb") as f_in:
+                original_bytes = f_in.read()
+
             json_data = json.loads(original_bytes.decode('utf-8'))
-            
-            # यदि S3 माइग्रेशन के बाद के लिंक्स सेव करने हों, तो यह सुनिश्चित करता है कि डेटा सही हो
             if PRIMARY_KEY not in json_data:
                 prop_id = filename.split('_')[1].split('.')[0] if '_' in filename else str(uuid.uuid4())
                 json_data[PRIMARY_KEY] = prop_id
@@ -193,5 +203,5 @@ async def save_to_dynamodb(data: dict):
         except Exception as ex:
             print(f"Failed to save {filename} to DynamoDB: {ex}")
 
-    return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव कर दी गई हैं!"}
+    return {"message": f"Safalta पूर्वक {saved_count} listings DynamoDB table '{TABLE_NAME}' mein save ho gayi hain!"}
     
