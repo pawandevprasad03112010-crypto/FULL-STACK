@@ -10,7 +10,7 @@
     <div class="container mx-auto px-4 py-8 max-w-6xl pb-24">
         <header class="bg-white shadow rounded-lg p-6 mb-8 text-center">
             <h1 class="text-3xl font-bold text-gray-800">Only Broker - S3 और DynamoDB माइग्रेटर</h1>
-            <p class="text-gray-600 mt-2">अपनी ज़िप फ़ाइल अपलोड करें और मैनेज करें।</p>
+            <p class="text-gray-600 mt-2">अपनी ज़िप फ़ाइल अपलोड करें, मैनेज करें और सुपरफास्ट माइग्रेट करें।</p>
         </header>
 
         {% if not listings %}
@@ -48,8 +48,8 @@
         <div class="mt-8 fixed bottom-0 left-0 right-0 bg-white shadow-2xl p-4 flex flex-col sm:flex-row justify-between items-center border-t gap-4 z-50 max-w-6xl mx-auto">
             <span class="font-semibold text-gray-700">कुल लिस्टिंग: {{ listings|length }}</span>
             <div class="flex gap-3">
-                <button onclick="startMigration()" class="bg-green-600 text-white font-bold py-2.5 px-5 rounded-lg hover:bg-green-700 transition shadow-lg text-sm sm:text-base">S3 पर माइग्रेट करें & ज़िप डाउनलोड करें</button>
-                <button onclick="saveToDynamoDB()" class="bg-purple-600 text-white font-bold py-2.5 px-5 rounded-lg hover:bg-purple-700 transition shadow-lg text-sm sm:text-base">DynamoDB में सेव करें</button>
+                <button onclick="startMigration()" id="migrate-btn" class="bg-green-600 text-white font-bold py-2.5 px-5 rounded-lg hover:bg-green-700 transition shadow-lg text-sm sm:text-base">S3 पर माइग्रेट करें & ज़िप डाउनलोड करें</button>
+                <button onclick="saveToDynamoDB()" id="dynamo-btn" class="bg-purple-600 text-white font-bold py-2.5 px-5 rounded-lg hover:bg-purple-700 transition shadow-lg text-sm sm:text-base">DynamoDB में सेव करें</button>
             </div>
         </div>
         {% endif %}
@@ -75,8 +75,8 @@
 
         async function startMigration() {
             const listingsData = await getListingsData();
-            const btn = event.target;
-            btn.textContent = 'S3 पर माइग्रेट हो रहा है...';
+            const btn = document.getElementById('migrate-btn');
+            btn.textContent = 'एस-थ्री पर माइग्रेट हो रहा है... कृपया प्रतीक्षा करें';
             btn.disabled = true;
 
             try {
@@ -110,7 +110,7 @@
 
         async function saveToDynamoDB() {
             const listingsData = await getListingsData();
-            const btn = event.target;
+            const btn = document.getElementById('dynamo-btn');
             btn.textContent = 'DynamoDB में सेव हो रहा है...';
             btn.disabled = true;
 
