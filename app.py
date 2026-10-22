@@ -214,4 +214,4 @@ async def save_to_dynamodb(data: dict):
             print(f"Failed to save {filename} to DynamoDB: {ex}")
 
     return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव कर दी गई हैं!"}
-    
+            
