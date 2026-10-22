@@ -3,90 +3,145 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Only Broker - S3 & DynamoDB Manager</title>
+    <title>Only Broker - S3 Image Migrator</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 min-h-screen font-sans">
     <div class="container mx-auto px-4 py-8 max-w-6xl pb-28">
         <header class="bg-white shadow rounded-lg p-6 mb-8 text-center">
-            <h1 class="text-3xl font-bold text-gray-800">Only Broker - S3 और DynamoDB माइग्रेटर</h1>
-            <p class="text-gray-600 mt-2">ज़िप फ़ाइल अपलोड करें, प्रॉपर्टी इमेजेस देखें और मैनेज करें।</p>
+            <h1 class="text-3xl font-bold text-gray-800">Only Broker - S3 इमेज माइग्रेटर</h1>
+            <p class="text-gray-600 mt-2">अपनी सभी एक्सट्रैक्ट की गई JSON फाइलें एक साथ चुनें, इमेजेस देखें और S3 पर माइग्रेट करें।</p>
         </header>
 
-        {% if not listings %}
-        <div class="bg-white shadow rounded-lg p-8 max-w-xl mx-auto">
-            <form action="/upload" method="POST" enctype="multipart/form-data" class="space-y-6">
-                <div>
-                    <label class="block text-lg font-medium text-gray-700 mb-2">लिस्टिंग ज़िप फ़ाइल अपलोड करें (.zip)</label>
-                    <input type="file" name="zippfile" accept=".zip" required class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-                </div>
-                <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition">अपलोड और पार्स करें</button>
-            </form>
-        </div>
-        {% else %}
-        <div class="bg-green-50 border border-green-200 shadow rounded-lg p-4 mb-6 text-green-800 font-medium text-center">
-            ✓ ज़िप फ़ाइल सफलतापूर्वक पार्स हो गई है। कुल लिस्टिंग मिलीं: {{ listings|length }}
-        </div>
-
-        <div class="space-y-6" id="listings-container">
-            {% for item in listings %}
-            <div class="bg-white shadow rounded-lg p-6 listing-card" data-filename="{{ item.filename }}">
-                <h3 class="text-xl font-bold text-indigo-700 mb-4 border-b pb-2">लिस्टिंग #{{ loop.index }}: {{ item.filename }}</h3>
-                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 image-grid">
-                    {% for img in item.images %}
-                    <div class="relative border rounded p-2 bg-gray-50 image-item" data-url="{{ img }}">
-                        <img src="{{ img }}" alt="Property Image" class="w-full h-32 object-cover rounded mb-2" onerror="this.src='https://via.placeholder.com/150?text=Image+Error'">
-                        <p class="text-xs text-gray-500 truncate mb-2" title="{{ img }}">{{ img }}</p>
-                        <button onclick="removeImage(this)" class="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-700 font-bold">&times;</button>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-
-        <div class="mt-8 fixed bottom-0 left-0 right-0 bg-white shadow-2xl p-4 flex flex-col sm:flex-row justify-between items-center border-t gap-4 z-50 max-w-6xl mx-auto">
-            <span class="font-semibold text-gray-700">कुल लिस्टिंग: {{ listings|length }}</span>
-            <div class="flex gap-3">
-                <button onclick="startMigration()" id="migrate-btn" class="bg-green-600 text-white font-bold py-2.5 px-5 rounded-lg hover:bg-green-700 transition shadow-lg text-sm sm:text-base">S3 पर माइग्रेट करें & ज़िप डाउनलोड करें</button>
-                <button onclick="saveToDynamoDB()" id="dynamo-btn" class="bg-purple-600 text-white font-bold py-2.5 px-5 rounded-lg hover:bg-purple-700 transition shadow-lg text-sm sm:text-base">DynamoDB में सेव करें</button>
+        <!-- File Selection Section -->
+        <div id="upload-section" class="bg-white shadow rounded-lg p-8 max-w-xl mx-auto mb-8">
+            <div class="space-y-4">
+                <label class="block text-lg font-medium text-gray-700">सभी JSON फाइलें चुनें (.json)</label>
+                <!-- multiple attribute की मदद से आप एक साथ सारी 172 फाइलें चुन सकते हैं -->
+                <input type="file" id="json-files" accept=".json" multiple class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                
+                <button onclick="loadJsonFiles()" id="load-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition shadow">फाइलें लोड करें और इमेजेस देखें</button>
             </div>
         </div>
-        {% endif %}
+
+        <!-- Listings & Images View Section -->
+        <div id="result-section" class="hidden space-y-6">
+            <div class="bg-green-50 border border-green-200 shadow rounded-lg p-4 text-green-800 font-medium text-center">
+                ✓ फाइलें सफलतापूर्वक लोड हो गई हैं। नीचे स्क्रॉल करके इमेजेस देखें और मैनेज करें।
+            </div>
+
+            <div id="listings-container" class="space-y-6">
+                <!-- JavaScript द्वारा लिस्टिंग कार्ड्स यहाँ जोड़े जाएंगे -->
+            </div>
+        </div>
+
+        <!-- Sticky Bottom Bar for Migration -->
+        <div id="bottom-bar" class="hidden mt-8 fixed bottom-0 left-0 right-0 bg-white shadow-2xl p-4 flex justify-between items-center border-t gap-4 z-50 max-w-6xl mx-auto">
+            <span id="total-listings-count" class="font-bold text-gray-700">कुल लिस्टिंग: 0</span>
+            <button onclick="startS3Migration()" id="migrate-btn" class="bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition shadow-lg text-lg">S3 पर माइग्रेट करें & ज़िप डाउनलोड करें</button>
+        </div>
     </div>
 
     <script>
-        function removeImage(btn) {
-            btn.closest('.image-item').remove();
-        }
+        let loadedListings = [];
 
-        async function getListingsData() {
-            const listingsData = [];
-            document.querySelectorAll('.listing-card').forEach(card => {
-                const filename = card.getAttribute('data-filename');
-                const images = [];
-                card.querySelectorAll('.image-item').forEach(item => {
-                    images.push(item.getAttribute('data-url'));
-                });
-                listingsData.push({ filename, images });
-            });
-            return listingsData;
-        }
+        async function loadJsonFiles() {
+            const fileInput = document.getElementById('json-files');
+            if (fileInput.files.length === 0) {
+                alert('कृपया पहले अपनी JSON फाइलें चुनें!');
+                return;
+            }
 
-        async function startMigration() {
-            const listingsData = await getListingsData();
-            const btn = document.getElementById('migrate-btn');
-            btn.textContent = 'एस-थ्री पर माइग्रेट हो रहा है... कृपया प्रतीक्षा करें';
+            const formData = new FormData();
+            for (let i = 0; i < fileInput.files.length; i++) {
+                formData.append('files', fileInput.files[i]);
+            }
+
+            const btn = document.getElementById('load-btn');
+            btn.textContent = 'लोड हो रहा है...';
             btn.disabled = true;
 
             try {
-                const response = await fetch('/migrate', {
+                const response = await fetch('/upload-json-files', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ listings: listingsData })
+                    body: formData
+                });
+                const result = await response.json();
+
+                if (response.ok) {
+                    loadedListings = result.listings;
+                    renderListings(loadedListings);
+                    document.getElementById('upload-section').classList.add('hidden');
+                    document.getElementById('result-section').classList.remove('hidden');
+                    document.getElementById('bottom-bar').classList.remove('hidden');
+                    document.getElementById('total-listings-count').textContent = `कुल लिस्टिंग: ${loadedListings.length}`;
+                } else {
+                    alert('फाइलें लोड करने में असफल!');
+                }
+            } catch (err) {
+                alert('त्रुटि: ' + err.message);
+            } finally {
+                btn.textContent = 'फाइलें लोड करें और इमेजेस देखें';
+                btn.disabled = false;
+            }
+        }
+
+        function renderListings(listings) {
+            const container = document.getElementById('listings-container');
+            container.innerHTML = '';
+
+            listings.forEach((item, listingIdx) => {
+                let imagesHtml = '';
+                item.images.forEach((imgUrl, imgIdx) => {
+                    imagesHtml += `
+                        <div class="relative border rounded p-2 bg-gray-50 image-item" data-img-url="${imgUrl}">
+                            <img src="${imgUrl}" alt="Property" class="w-full h-32 object-cover rounded mb-2" onerror="this.src='https://via.placeholder.com/150?text=Image+Error'">
+                            <p class="text-xs text-gray-500 truncate mb-2" title="${imgUrl}">${imgUrl}</p>
+                            <button onclick="removeImage(this, ${listingIdx}, '${imgUrl}')" class="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-700 font-bold shadow">&times;</button>
+                        </div>
+                    `;
                 });
 
-                if(response.ok) {
+                if (item.images.length === 0) {
+                    imagesHtml = '<p class="text-sm text-gray-400 italic">इस लिस्टिंग में कोई इमेज मौजूद नहीं है।</p>';
+                }
+
+                container.innerHTML += `
+                    <div class="bg-white shadow rounded-lg p-6 listing-card" data-filename="${item.filename}">
+                        <h3 class="text-xl font-bold text-indigo-700 mb-4 border-b pb-2">लिस्टिंग #${listingIdx + 1}: ${item.filename}</h3>
+                        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 image-grid">
+                            ${imagesHtml}
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function removeImage(btn, listingIdx, imgUrl) {
+            const itemElement = btn.closest('.image-item');
+            itemElement.remove();
+
+            // array से भी हटाना ताकि माइग्रेशन में न जाए
+            const imgList = loadedListings[listingIdx].images;
+            const index = imgList.indexOf(imgUrl);
+            if (index > -1) {
+                imgList.splice(index, 1);
+            }
+        }
+
+        async function startS3Migration() {
+            const btn = document.getElementById('migrate-btn');
+            btn.textContent = 'S3 पर माइग्रेट हो रहा है... कृपया प्रतीक्षा करें ⏳';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/migrate-s3', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ listings: loadedListings })
+                });
+
+                if (response.ok) {
                     const blob = await response.blob();
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -95,42 +150,15 @@
                     document.body.appendChild(a);
                     a.click();
                     a.remove();
-                    alert('माइग्रेशन सफल! S3 यूआरएल अपडेट हो गए हैं और ज़िप डाउनलोड हो गई है।');
+                    alert('माइग्रेशन पूरी तरह सफल! S3 यूआरएल अपडेट हो गए हैं और ज़िप फ़ाइल डाउनलोड हो गई है।');
                 } else {
                     const err = await response.json();
                     alert('माइग्रेशन असफल: ' + (err.detail || 'त्रुटि'));
                 }
-            } catch(e) {
+            } catch (e) {
                 alert('त्रुटि: ' + e.message);
             } finally {
                 btn.textContent = 'S3 पर माइग्रेट करें & ज़िप डाउनलोड करें';
-                btn.disabled = false;
-            }
-        }
-
-        async function saveToDynamoDB() {
-            const listingsData = await getListingsData();
-            const btn = document.getElementById('dynamo-btn');
-            btn.textContent = 'DynamoDB में सेव हो रहा है...';
-            btn.disabled = true;
-
-            try {
-                const response = await fetch('/save-dynamodb', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ listings: listingsData })
-                });
-
-                const result = await response.json();
-                if(response.ok) {
-                    alert(result.message);
-                } else {
-                    alert('सेव करने में असफल: ' + (result.detail || 'त्रुटि'));
-                }
-            } catch(e) {
-                alert('त्रुटि: ' + e.message);
-            } finally {
-                btn.textContent = 'DynamoDB में सेव करें';
                 btn.disabled = false;
             }
         }
