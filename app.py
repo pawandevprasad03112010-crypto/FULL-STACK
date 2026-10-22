@@ -4,7 +4,7 @@ import io
 import json
 import uuid
 import asyncio
-from decimal import Decimal
+from typing import List
 import httpx
 import boto3
 from fastapi import FastAPI, UploadFile, File, Request, HTTPException
@@ -14,83 +14,63 @@ from fastapi.templating import Jinja2Templates
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# आपके AWS और DynamoDB क्रेडेंशियल्स
+# आपके AWS S3 क्रेडेंशियल्स
 AWS_ACCESS_KEY_ID = "AKIA32VVAONMQV5QKNED"
 AWS_SECRET_ACCESS_KEY = "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"
 REGION = "ap-south-1"
 BUCKET_NAME = "property-images-estatex-1"
-TABLE_NAME = "LARGE_PROPERTY_LISTING"
-PRIMARY_KEY = "property_id"
 
 TEMP_DIR = "/tmp/listings_cache"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-def extract_media_images(data):
-    """ केवल media -> images के अंदर मौजूद असली प्रॉपर्टी इमेजेस को निकालेगा """
-    images = []
-    try:
-        media_section = data.get("media", {})
-        if isinstance(media_section, dict):
-            img_list = media_section.get("images", [])
-            if isinstance(img_list, list):
-                for img_url in img_list:
-                    if isinstance(img_url, str) and img_url.startswith("http"):
-                        if img_url not in images:
-                            images.append(img_url)
-    except Exception as e:
-        print(f"Error extracting images: {e}")
-    return images
-
-def clean_and_convert_data(obj):
-    """ None वैल्यूज़ हटाना और Float को DynamoDB के अनुकूल Decimal में बदलना """
-    if isinstance(obj, list):
-        return [clean_and_convert_data(v) for v in obj if v is not None]
-    elif isinstance(obj, dict):
-        return {str(k): clean_and_convert_data(v) for k, v in obj.items() if v is not None and v != ""}
-    elif isinstance(obj, float):
-        return Decimal(str(obj))
-    elif isinstance(obj, int):
-        return int(obj)
-    else:
-        return str(obj) if isinstance(obj, str) else obj
-
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "listings": None})
+    return templates.TemplateResponse("index.html", {"request": request})
 
-@app.post("/upload", response_class=HTMLResponse)
-async def upload(request: Request, zippfile: UploadFile = File(...)):
+@app.post("/upload-json-files")
+async def upload_json_files(files: List[UploadFile] = File(...)):
+    # पुराना कैश साफ़ करना
     for f in os.listdir(TEMP_DIR):
-        file_path = os.path.join(TEMP_DIR, f)
-        if os.path.isfile(file_path):
-            os.remove(file_path)
+        fp = os.path.join(TEMP_DIR, f)
+        if os.path.isfile(fp):
+            os.remove(fp)
 
-    contents = await zippfile.read()
     listings = []
+    for file in files:
+        filename = file.filename
+        content = await file.read()
+        
+        # फाइल को टेंप फोल्डर में सेव करना
+        safe_path = os.path.join(TEMP_DIR, filename)
+        with open(safe_path, "wb") as f_out:
+            f_out.write(content)
+        
+        try:
+            data = json.loads(content.decode('utf-8'))
+            images = []
+            
+            # केवल media -> images से यूआरएल निकालना (कांटेक्ट/डीलर फोटो को छोड़ना)
+            media_section = data.get("media", {})
+            if isinstance(media_section, dict):
+                img_list = media_section.get("images", [])
+                if isinstance(img_list, list):
+                    for img_url in img_list:
+                        if isinstance(img_url, str) and img_url.startswith("http"):
+                            if img_url not in images:
+                                images.append(img_url)
 
-    with zipfile.ZipFile(io.BytesIO(contents), 'r') as z:
-        for filename in z.namelist():
-            if filename.endswith('.json') and not filename.startswith('__MACOSX'):
-                file_bytes = z.read(filename)
-                safe_path = os.path.join(TEMP_DIR, filename)
-                with open(safe_path, "wb") as f_out:
-                    f_out.write(file_bytes)
-                
-                try:
-                    data = json.loads(file_bytes.decode('utf-8'))
-                    images = extract_media_images(data)
-                    listings.append({
-                        'filename': filename,
-                        'images': images
-                    })
-                except Exception as e:
-                    print(f"Error parsing {filename}: {e}")
+            listings.append({
+                "filename": filename,
+                "images": images
+            })
+        except Exception as e:
+            print(f"Error parsing {filename}: {e}")
 
-    return templates.TemplateResponse("index.html", {"request": request, "listings": listings})
+    return {"listings": listings}
 
-@app.post("/migrate")
-async def migrate(data: dict):
-    listings_data = data.get('listings')
+@app.post("/migrate-s3")
+async def migrate_s3(data: dict):
+    listings_data = data.get('listings', [])
 
     try:
         s3 = boto3.client(
@@ -104,18 +84,17 @@ async def migrate(data: dict):
 
     output_zip = io.BytesIO()
 
-    async def process_listing_async(client, listing):
+    async def process_listing(client, listing):
         filename = listing['filename']
-        retained_images = listing['images']
+        retained_images = listing['images'] # यूजर द्वारा रखी गई या डिलीट करने के बाद बची हुई इमेजेस
         
         file_path = os.path.join(TEMP_DIR, filename)
         if not os.path.exists(file_path):
             return None, None
 
         with open(file_path, "rb") as f_in:
-            original_bytes = f_in.read()
+            json_data = json.loads(f_in.read().decode('utf-8'))
 
-        json_data = json.loads(original_bytes.decode('utf-8'))
         old_to_new_map = {}
 
         async def download_and_upload(img_url):
@@ -150,37 +129,29 @@ async def migrate(data: dict):
             if new_url:
                 old_to_new_map[old_url] = new_url
 
-        # केवल media -> images के अंदर के यूआरएल को नए S3 यूआरएल से बदलना
+        # केवल media -> images के यूआरएल को नए S3 यूआरएल से बदलना
         if "media" in json_data and isinstance(json_data["media"], dict):
-            if "images" in json_data["media"] and isinstance(json_data["media"]["images"], list):
-                updated_media_images = [
-                    old_to_new_map.get(img, img) 
-                    for img in json_data["media"]["images"] 
-                    if img in old_to_new_map
-                ]
-                json_data["media"]["images"] = updated_media_images
+            updated_media_images = [
+                old_to_new_map[img] for img in retained_images if img in old_to_new_map
+            ]
+            json_data["media"]["images"] = updated_media_images
 
-        updated_json_bytes = json.dumps(json_data, indent=2, ensure_ascii=False).encode('utf-8')
-        
-        with open(file_path, "wb") as f_out:
-            f_out.write(updated_json_bytes)
-
-        return filename, updated_json_bytes
+        updated_bytes = json.dumps(json_data, indent=2, ensure_ascii=False).encode('utf-8')
+        return filename, updated_bytes
 
     async with httpx.AsyncClient() as client:
-        semaphore = asyncio.Semaphore(10)
-        
+        semaphore = asyncio.Semaphore(15)
         async def bounded_process(listing):
             async with semaphore:
-                return await process_listing_async(client, listing)
+                return await process_listing(client, listing)
 
-        all_tasks = [bounded_process(listing) for listing in listings_data]
-        completed_results = await asyncio.gather(*all_tasks)
+        tasks = [bounded_process(l) for l in listings_data]
+        results = await asyncio.gather(*tasks)
 
     with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as z_out:
-        for filename, updated_bytes in completed_results:
-            if filename and updated_bytes:
-                z_out.writestr(filename, updated_bytes)
+        for fn, bts in results:
+            if fn and bts:
+                z_out.writestr(fn, bts)
 
     output_zip.seek(0)
     return StreamingResponse(
@@ -188,50 +159,4 @@ async def migrate(data: dict):
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=updated_listings_s3.zip"}
     )
-
-@app.post("/save-dynamodb")
-async def save_to_dynamodb(data: dict):
-    listings_data = data.get('listings')
-
-    try:
-        dynamodb = boto3.resource(
-            'dynamodb',
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-            region_name=REGION
-        )
-        table = dynamodb.Table(TABLE_NAME)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"DynamoDB connection failed: {str(e)}")
-
-    saved_count = 0
-    for listing in listings_data:
-        filename = listing['filename']
-        file_path = os.path.join(TEMP_DIR, filename)
-        if not os.path.exists(file_path):
-            continue
-
-        try:
-            with open(file_path, "rb") as f_in:
-                original_bytes = f_in.read()
-
-            json_data = json.loads(original_bytes.decode('utf-8'))
-            
-            # Primary Key सुनिश्चित करना
-            prop_id = json_data.get(PRIMARY_KEY)
-            if not prop_id:
-                prop_id = filename.split('_')[1].split('.')[0] if '_' in filename else str(uuid.uuid4())
-                json_data[PRIMARY_KEY] = str(prop_id)
-            else:
-                json_data[PRIMARY_KEY] = str(prop_id)
-
-            # डेटा क्लीनिंग (Decimal और None removal)
-            cleaned_item = clean_and_convert_data(json_data)
-
-            table.put_item(Item=cleaned_item)
-            saved_count += 1
-        except Exception as ex:
-            print(f"Failed to save {filename} to DynamoDB: {str(ex)}")
-
-    return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव कर दी गई हैं!"}
     
