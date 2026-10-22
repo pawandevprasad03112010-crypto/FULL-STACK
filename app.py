@@ -4,6 +4,7 @@ import io
 import json
 import uuid
 import asyncio
+from decimal import Decimal
 import httpx
 import boto3
 from fastapi import FastAPI, UploadFile, File, Request, HTTPException
@@ -11,10 +12,9 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 app = FastAPI()
-
 templates = Jinja2Templates(directory="templates")
 
-# आपके AWS और DynamoDB क्रेडेंशियल्स
+# AWS और DynamoDB क्रेडेंशियल्स
 AWS_ACCESS_KEY_ID = "AKIA32VVAONMQV5QKNED"
 AWS_SECRET_ACCESS_KEY = "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"
 REGION = "ap-south-1"
@@ -26,7 +26,7 @@ TEMP_DIR = "/tmp/listings_cache"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 def extract_media_images(data):
-    """ केवल media -> images के अंदर के यूआरएल को निकालेगा, बाकी सबको छोड़ देगा """
+    """ आपके JSON स्ट्रक्चर के media -> images से केवल प्रॉपर्टी की तस्वीरें निकालेगा """
     images = []
     try:
         media_section = data.get("media", {})
@@ -40,6 +40,19 @@ def extract_media_images(data):
     except Exception as e:
         print(f"Error extracting images: {e}")
     return images
+
+def clean_and_convert_data(obj):
+    """ None वैल्यूज़ हटाना और Float को DynamoDB के लिए Decimal में बदलना """
+    if isinstance(obj, list):
+        return [clean_and_convert_data(v) for v in obj if v is not None]
+    elif isinstance(obj, dict):
+        return {str(k): clean_and_convert_data(v) for k, v in obj.items() if v is not None and v != ""}
+    elif isinstance(obj, float):
+        return Decimal(str(obj))
+    elif isinstance(obj, int):
+        return int(obj)
+    else:
+        return str(obj) if isinstance(obj, str) else obj
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -65,7 +78,6 @@ async def upload(request: Request, zippfile: UploadFile = File(...)):
                 
                 try:
                     data = json.loads(file_bytes.decode('utf-8'))
-                    # यहाँ केवल media.images वाले यूआरएल निकाले जा रहे हैं
                     images = extract_media_images(data)
                     listings.append({
                         'filename': filename,
@@ -138,7 +150,7 @@ async def migrate(data: dict):
             if new_url:
                 old_to_new_map[old_url] = new_url
 
-        # केवल media -> images के अंदर के यूआरएल को नए S3 यूआरएल से बदलना
+        # केवल media -> images के अंदर के यूआरएल बदलना
         if "media" in json_data and isinstance(json_data["media"], dict):
             if "images" in json_data["media"] and isinstance(json_data["media"]["images"], list):
                 updated_media_images = [
@@ -204,14 +216,22 @@ async def save_to_dynamodb(data: dict):
                 original_bytes = f_in.read()
 
             json_data = json.loads(original_bytes.decode('utf-8'))
-            if PRIMARY_KEY not in json_data:
+            
+            # Primary Key सुनिश्चित करना
+            prop_id = json_data.get(PRIMARY_KEY)
+            if not prop_id:
                 prop_id = filename.split('_')[1].split('.')[0] if '_' in filename else str(uuid.uuid4())
-                json_data[PRIMARY_KEY] = prop_id
+                json_data[PRIMARY_KEY] = str(prop_id)
+            else:
+                json_data[PRIMARY_KEY] = str(prop_id)
 
-            table.put_item(Item=json_data)
+            # डेटा क्लीनिंग (Decimal और None removal)
+            cleaned_item = clean_and_convert_data(json_data)
+
+            table.put_item(Item=cleaned_item)
             saved_count += 1
         except Exception as ex:
-            print(f"Failed to save {filename} to DynamoDB: {ex}")
+            print(f"Failed to save {filename} to DynamoDB: {str(ex)}")
 
-    return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव कर दी गई हैं!"}
-            
+    return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव हो गई हैं!"}
+                
