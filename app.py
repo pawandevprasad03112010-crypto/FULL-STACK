@@ -40,29 +40,33 @@ async def upload_json_files(files: List[UploadFile] = File(...)):
         filename = file.filename
         content = await file.read()
         
-        # फाइल को टेंप फोल्डर में सेव करना
         safe_path = os.path.join(TEMP_DIR, filename)
         with open(safe_path, "wb") as f_out:
             f_out.write(content)
         
         try:
-            data = json.loads(content.decode('utf-8'))
-            images = []
+            raw_data = json.loads(content.decode('utf-8'))
             
-            # केवल media -> images से यूआरएल निकालना (कांटेक्ट/डीलर फोटो को छोड़ना)
-            media_section = data.get("media", {})
-            if isinstance(media_section, dict):
-                img_list = media_section.get("images", [])
-                if isinstance(img_list, list):
-                    for img_url in img_list:
-                        if isinstance(img_url, str) and img_url.startswith("http"):
-                            if img_url not in images:
-                                images.append(img_url)
+            # यदि JSON रूट लिस्ट है तो उसे संभालें, वरना सिंगल डिक्शनरी मानें
+            items = raw_data if isinstance(raw_data, list) else [raw_data]
+            
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                images = []
+                media_section = item.get("media", {})
+                if isinstance(media_section, dict):
+                    img_list = media_section.get("images", [])
+                    if isinstance(img_list, list):
+                        for img_url in img_list:
+                            if isinstance(img_url, str) and img_url.startswith("http"):
+                                if img_url not in images:
+                                    images.append(img_url)
 
-            listings.append({
-                "filename": filename,
-                "images": images
-            })
+                listings.append({
+                    "filename": filename,
+                    "images": images
+                })
         except Exception as e:
             print(f"Error parsing {filename}: {e}")
 
@@ -86,14 +90,17 @@ async def migrate_s3(data: dict):
 
     async def process_listing(client, listing):
         filename = listing['filename']
-        retained_images = listing['images'] # यूजर द्वारा रखी गई या डिलीट करने के बाद बची हुई इमेजेस
+        reterr_images = listing['images']
         
         file_path = os.path.join(TEMP_DIR, filename)
         if not os.path.exists(file_path):
             return None, None
 
         with open(file_path, "rb") as f_in:
-            json_data = json.loads(f_in.read().decode('utf-8'))
+            raw_content = json.loads(f_in.read().decode('utf-8'))
+
+        is_list = isinstance(raw_content, list)
+        json_items = raw_content if is_list else [raw_content]
 
         old_to_new_map = {}
 
@@ -122,21 +129,23 @@ async def migrate_s3(data: dict):
                 print(f"Failed to migrate {img_url}: {ex}")
             return img_url, None
 
-        tasks = [download_and_upload(img_url) for img_url in retained_images]
+        tasks = [download_and_upload(img_url) for img_url in reterr_images]
         results = await asyncio.gather(*tasks)
 
         for old_url, new_url in results:
             if new_url:
                 old_to_new_map[old_url] = new_url
 
-        # केवल media -> images के यूआरएल को नए S3 यूआरएल से बदलना
-        if "media" in json_data and isinstance(json_data["media"], dict):
-            updated_media_images = [
-                old_to_new_map[img] for img in retained_images if img in old_to_new_map
-            ]
-            json_data["media"]["images"] = updated_media_images
+        # हर आइटम के अंदर media -> images को अपडेट करना
+        for item in json_items:
+            if isinstance(item, dict) and "media" in item and isinstance(item["media"], dict):
+                updated_media_images = [
+                    old_to_new_map[img] for img in reterr_images if img in old_to_new_map
+                ]
+                item["media"]["images"] = updated_media_images
 
-        updated_bytes = json.dumps(json_data, indent=2, ensure_ascii=False).encode('utf-8')
+        final_data = json_items if is_list else json_items[0]
+        updated_bytes = json.dumps(final_data, indent=2, ensure_ascii=False).encode('utf-8')
         return filename, updated_bytes
 
     async with httpx.AsyncClient() as client:
