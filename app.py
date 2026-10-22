@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# AWS और DynamoDB क्रेडेंशियल्स
+# आपके AWS और DynamoDB क्रेडेंशियल्स
 AWS_ACCESS_KEY_ID = "AKIA32VVAONMQV5QKNED"
 AWS_SECRET_ACCESS_KEY = "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"
 REGION = "ap-south-1"
@@ -26,7 +26,7 @@ TEMP_DIR = "/tmp/listings_cache"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 def extract_media_images(data):
-    """ आपके JSON स्ट्रक्चर के media -> images से केवल प्रॉपर्टी की तस्वीरें निकालेगा """
+    """ सीधे आपके JSON स्ट्रक्चर के media -> images से केवल प्रॉपर्टी की तस्वीरें निकालेगा """
     images = []
     try:
         media_section = data.get("media", {})
@@ -234,4 +234,4 @@ async def save_to_dynamodb(data: dict):
             print(f"Failed to save {filename} to DynamoDB: {str(ex)}")
 
     return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव हो गई हैं!"}
-                
+                    
