@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Only Broker - S3 & DynamoDB Migrator</title>
+    <title>Only Broker - S3 & DynamoDB Manager</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 min-h-screen font-sans">
-    <div class="container mx-auto px-4 py-8 max-w-6xl pb-24">
+    <div class="container mx-auto px-4 py-8 max-w-6xl pb-28">
         <header class="bg-white shadow rounded-lg p-6 mb-8 text-center">
             <h1 class="text-3xl font-bold text-gray-800">Only Broker - S3 और DynamoDB माइग्रेटर</h1>
-            <p class="text-gray-600 mt-2">अपनी ज़िप फ़ाइल अपलोड करें, मैनेज करें और सुपरफास्ट माइग्रेट करें।</p>
+            <p class="text-gray-600 mt-2">ज़िप फ़ाइल अपलोड करें, प्रॉपर्टी इमेजेस देखें और मैनेज करें।</p>
         </header>
 
         {% if not listings %}
@@ -25,7 +25,7 @@
         </div>
         {% else %}
         <div class="bg-green-50 border border-green-200 shadow rounded-lg p-4 mb-6 text-green-800 font-medium text-center">
-            ✓ AWS S3 और DynamoDB क्रेडेंशियल्स एक्टिव हैं। कुल लिस्टिंग मिलीं: {{ listings|length }}
+            ✓ ज़िप फ़ाइल सफलतापूर्वक पार्स हो गई है। कुल लिस्टिंग मिलीं: {{ listings|length }}
         </div>
 
         <div class="space-y-6" id="listings-container">
@@ -35,7 +35,7 @@
                 <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 image-grid">
                     {% for img in item.images %}
                     <div class="relative border rounded p-2 bg-gray-50 image-item" data-url="{{ img }}">
-                        <img src="{{ img }}" alt="Media Image" class="w-full h-32 object-cover rounded mb-2" onerror="this.src='https://via.placeholder.com/150?text=Image+Error'">
+                        <img src="{{ img }}" alt="Property Image" class="w-full h-32 object-cover rounded mb-2" onerror="this.src='https://via.placeholder.com/150?text=Image+Error'">
                         <p class="text-xs text-gray-500 truncate mb-2" title="{{ img }}">{{ img }}</p>
                         <button onclick="removeImage(this)" class="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-700 font-bold">&times;</button>
                     </div>
@@ -76,7 +76,7 @@
         async function startMigration() {
             const listingsData = await getListingsData();
             const btn = document.getElementById('migrate-btn');
-            btn.textContent = 'एस-थ्री पर माइग्रेट हो रहा है... कृपया प्रतीक्षा करें';
+            btn.textContent = 'एस-थ्री पर माइग्रेट हो रहा है...';
             btn.disabled = true;
 
             try {
