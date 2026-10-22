@@ -26,7 +26,7 @@ TEMP_DIR = "/tmp/listings_cache"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 def extract_media_images(data):
-    """ सीधे आपके JSON स्ट्रक्चर के media -> images से केवल प्रॉपर्टी की तस्वीरें निकालेगा """
+    """ केवल media -> images के अंदर मौजूद असली प्रॉपर्टी इमेजेस को निकालेगा """
     images = []
     try:
         media_section = data.get("media", {})
@@ -42,7 +42,7 @@ def extract_media_images(data):
     return images
 
 def clean_and_convert_data(obj):
-    """ None वैल्यूज़ हटाना और Float को DynamoDB के लिए Decimal में बदलना """
+    """ None वैल्यूज़ हटाना और Float को DynamoDB के अनुकूल Decimal में बदलना """
     if isinstance(obj, list):
         return [clean_and_convert_data(v) for v in obj if v is not None]
     elif isinstance(obj, dict):
@@ -150,7 +150,7 @@ async def migrate(data: dict):
             if new_url:
                 old_to_new_map[old_url] = new_url
 
-        # केवल media -> images के अंदर के यूआरएल बदलना
+        # केवल media -> images के अंदर के यूआरएल को नए S3 यूआरएल से बदलना
         if "media" in json_data and isinstance(json_data["media"], dict):
             if "images" in json_data["media"] and isinstance(json_data["media"]["images"], list):
                 updated_media_images = [
@@ -168,7 +168,7 @@ async def migrate(data: dict):
         return filename, updated_json_bytes
 
     async with httpx.AsyncClient() as client:
-        semaphore = asyncio.Semaphore(15)
+        semaphore = asyncio.Semaphore(10)
         
         async def bounded_process(listing):
             async with semaphore:
@@ -233,5 +233,5 @@ async def save_to_dynamodb(data: dict):
         except Exception as ex:
             print(f"Failed to save {filename} to DynamoDB: {str(ex)}")
 
-    return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव हो गई हैं!"}
-                    
+    return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव कर दी गई हैं!"}
+    
