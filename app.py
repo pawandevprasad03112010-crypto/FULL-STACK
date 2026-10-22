@@ -26,6 +26,7 @@ TEMP_DIR = "/tmp/listings_cache"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 def extract_media_images(data):
+    """ केवल media -> images के अंदर के यूआरएल को निकालेगा, बाकी सबको छोड़ देगा """
     images = []
     try:
         media_section = data.get("media", {})
@@ -39,20 +40,6 @@ def extract_media_images(data):
     except Exception as e:
         print(f"Error extracting images: {e}")
     return images
-
-def update_images_in_json(obj, old_to_new_map):
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if isinstance(v, str) and v in old_to_new_map:
-                obj[k] = old_to_new_map[v]
-            elif isinstance(v, (dict, list)):
-                update_images_in_json(v, old_to_new_map)
-    elif isinstance(obj, list):
-        for i, item in enumerate(obj):
-            if isinstance(item, str) and item in old_to_new_map:
-                obj[i] = old_to_new_map[item]
-            elif isinstance(item, (dict, list)):
-                update_images_in_json(item, old_to_new_map)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -78,6 +65,7 @@ async def upload(request: Request, zippfile: UploadFile = File(...)):
                 
                 try:
                     data = json.loads(file_bytes.decode('utf-8'))
+                    # यहाँ केवल media.images वाले यूआरएल निकाले जा रहे हैं
                     images = extract_media_images(data)
                     listings.append({
                         'filename': filename,
@@ -150,13 +138,21 @@ async def migrate(data: dict):
             if new_url:
                 old_to_new_map[old_url] = new_url
 
+        # केवल media -> images के अंदर के यूआरएल को नए S3 यूआरएल से बदलना
         if "media" in json_data and isinstance(json_data["media"], dict):
             if "images" in json_data["media"] and isinstance(json_data["media"]["images"], list):
-                updated_media_images = [old_to_new_map.get(img, img) for img in json_data["media"]["images"] if img in old_to_new_map]
+                updated_media_images = [
+                    old_to_new_map.get(img, img) 
+                    for img in json_data["media"]["images"] 
+                    if img in old_to_new_map
+                ]
                 json_data["media"]["images"] = updated_media_images
 
-        update_images_in_json(json_data, old_to_new_map)
         updated_json_bytes = json.dumps(json_data, indent=2, ensure_ascii=False).encode('utf-8')
+        
+        with open(file_path, "wb") as f_out:
+            f_out.write(updated_json_bytes)
+
         return filename, updated_json_bytes
 
     async with httpx.AsyncClient() as client:
@@ -218,4 +214,4 @@ async def save_to_dynamodb(data: dict):
             print(f"Failed to save {filename} to DynamoDB: {ex}")
 
     return {"message": f"सफलतापूर्वक {saved_count} लिस्टिंग DynamoDB टेबल '{TABLE_NAME}' में सेव कर दी गई हैं!"}
-            
+    
